@@ -32,33 +32,37 @@ detect_ssh_port() {
 prompt_inputs() {
     LOCAL_IP=$(curl -4fsS --max-time 3 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || true)
     echo "=== Настройка RU-релея ($(hostname) / ${LOCAL_IP:-unknown}) ==="
-    if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -qxE 'remnanode|remnawave'; then
-        die "На этом сервере работает remnanode/remnawave! Запустите скрипт на RU-релее, а не на VPN-ноде или панели."
+    if command -v docker >/dev/null 2>&1; then
+        docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'remnawave' && die "На этом сервере работает панель remnawave! Останавливаю."
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'remnanode'; then
+            warn "Обнаружен контейнер remnanode на $(hostname) (${LOCAL_IP:-?})."
+            local ans=""
+            read -rp "Остановить remnanode и переделать этот сервер в RU-релей? [y/N]: " ans
+            [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]] || die "Отменено."
+            docker update --restart=no remnanode >/dev/null 2>&1 || true
+            docker stop remnanode >/dev/null 2>&1 || true
+            ok "remnanode остановлен и снят с автозапуска."
+        fi
     fi
     [[ -n "${EU_IP:-}" ]] || read -rp "IP-адрес европейской ноды (куда пробрасывать трафик): " EU_IP
     is_valid_ipv4 "$EU_IP" || die "Некорректный IPv4-адрес: '${EU_IP}'"
     [[ -z "$LOCAL_IP" || "$EU_IP" != "$LOCAL_IP" ]] || die "EU_IP совпадает с IP этого сервера (${LOCAL_IP})! Запустите скрипт на RU-релее."
 
     if [[ -z "${EU_TCP_PORT:-}" ]]; then
-        read -rp "TCP-порт на европейской ноде [443]: " EU_TCP_PORT
-        EU_TCP_PORT="${EU_TCP_PORT:-443}"
+        read -rp "TCP-порт на европейской ноде [443]: " EU_TCP_PORT; EU_TCP_PORT="${EU_TCP_PORT:-443}"
     fi
     is_valid_port "$EU_TCP_PORT" || die "Некорректный TCP-порт: '${EU_TCP_PORT}'"
-
     if [[ -z "${EU_UDP_PORT:-}" ]]; then
-        read -rp "UDP-порт для проброса (2443 для Hysteria2, 0 — выкл) [2443]: " EU_UDP_PORT
-        EU_UDP_PORT="${EU_UDP_PORT:-2443}"
+        read -rp "UDP-порт для проброса (2443 для Hysteria2, 0 — выкл) [2443]: " EU_UDP_PORT; EU_UDP_PORT="${EU_UDP_PORT:-2443}"
     fi
     [[ "$EU_UDP_PORT" == "0" ]] || is_valid_port "$EU_UDP_PORT" || die "Некорректный UDP-порт: '${EU_UDP_PORT}'"
-
     if [[ "${SITE_DOMAIN+x}" != "x" ]]; then
         read -rp "Домен сайта-заглушки на этом RU-сервере (Enter — без сайта, чистый L4): " SITE_DOMAIN
     fi
     SITE_DOMAIN="${SITE_DOMAIN:-}"
     if [[ -n "$SITE_DOMAIN" ]]; then
         is_valid_domain "$SITE_DOMAIN" || die "Некорректный домен: '${SITE_DOMAIN}'"
-        local dom_ips
-        dom_ips=$(getent ahostsv4 "$SITE_DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)
+        local dom_ips; dom_ips=$(getent ahostsv4 "$SITE_DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)
         if [[ -n "$LOCAL_IP" ]] && ! grep -qw "$LOCAL_IP" <<< "$dom_ips"; then
             die "DNS ${SITE_DOMAIN} указывает на [${dom_ips:-пусто}], а IP этого сервера — ${LOCAL_IP}. Проверьте DNS (без прокси Cloudflare) или сервер."
         fi
@@ -68,14 +72,11 @@ prompt_inputs() {
         LE_EMAIL="${LE_EMAIL:-}"
         [[ -z "$LE_EMAIL" ]] || is_valid_email "$LE_EMAIL" || die "Некорректный email: '${LE_EMAIL}'"
     fi
-
     local default_ssh; default_ssh=$(detect_ssh_port)
     if [[ -z "${SSH_PORT:-}" ]]; then
-        read -rp "Порт SSH этого сервера (для firewall) [${default_ssh}]: " SSH_PORT
-        SSH_PORT="${SSH_PORT:-$default_ssh}"
+        read -rp "Порт SSH этого сервера (для firewall) [${default_ssh}]: " SSH_PORT; SSH_PORT="${SSH_PORT:-$default_ssh}"
     fi
     is_valid_port "$SSH_PORT" || die "Некорректный SSH-порт: '${SSH_PORT}'"
-
     info "EU TCP: ${EU_IP}:${EU_TCP_PORT} | EU UDP: $([[ "$EU_UDP_PORT" != "0" ]] && echo "${EU_IP}:${EU_UDP_PORT}" || echo off) | Decoy: ${SITE_DOMAIN:-off} | SSH: ${SSH_PORT}"
 }
 
@@ -333,18 +334,8 @@ verify_result() {
 }
 
 main() {
-    prompt_inputs
-    configure_sysctl
-    install_packages
-    configure_firewall
-    configure_nginx_limits
-    if [[ -n "$SITE_DOMAIN" ]]; then
-        write_decoy_site
-        obtain_certificate
-    fi
-    write_final_nginx_configs
-    activate_relay
-    verify_result
+    prompt_inputs; configure_sysctl; install_packages; configure_firewall; configure_nginx_limits
+    [[ -n "$SITE_DOMAIN" ]] && { write_decoy_site; obtain_certificate; }
+    write_final_nginx_configs; activate_relay; verify_result
 }
-
 main "$@"
