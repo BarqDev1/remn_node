@@ -119,10 +119,48 @@ write_decoy_site() {
     mkdir -p /var/www/relay-decoy /var/www/certbot
     [[ -f /var/www/relay-decoy/index.html ]] && return 0
     cat <<'EOF' > /var/www/relay-decoy/index.html
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Edge Status</title>
-<style>body{margin:0;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:grid;place-items:center;min-height:100vh}main{max-width:440px;padding:28px;border:1px solid #1e293b;border-radius:14px;background:#111827}h1{margin:0 0 8px;font-size:20px}p{margin:0;color:#94a3b8;font-size:14px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:8px}</style>
-</head><body><main><h1><span class="dot"></span>Operational</h1><p>All regional edge services are running normally.</p></main></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>АвтоТехСервис — Диагностика, ТО и подбор запчастей</title>
+  <meta name="description" content="Компьютерная диагностика, плановое техническое обслуживание и подбор оригинальных и аналоговых автозапчастей по VIN.">
+  <style>
+    *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f8fafc;color:#0f172a;line-height:1.55}
+    header{background:#0f172a;color:#fff;padding:18px 24px}.wrap{max-width:960px;margin:0 auto}
+    .nav{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}.brand{font-weight:700;font-size:18px;letter-spacing:.3px}
+    .nav a{color:#cbd5e1;text-decoration:none;font-size:14px;margin-left:18px}.nav a:hover{color:#fff}
+    .hero{background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);color:#f8fafc;padding:56px 24px}
+    .hero h1{margin:0 0 12px;font-size:32px;line-height:1.2}.hero p{margin:0;max-width:620px;color:#cbd5e1;font-size:16px}
+    main{padding:40px 24px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;margin-top:16px}
+    .card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:22px}.card h3{margin:0 0 8px;font-size:17px}.card p{margin:0;color:#475569;font-size:14px}
+    .hours{margin-top:32px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:22px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:16px}
+    footer{border-top:1px solid #e2e8f0;padding:24px;color:#64748b;font-size:13px;text-align:center}
+  </style>
+</head>
+<body>
+  <header><div class="wrap nav"><div class="brand">АвтоТехСервис</div><nav><a href="#services">Услуги</a><a href="#parts">Запчасти</a><a href="#schedule">График</a></nav></div></header>
+  <section class="hero"><div class="wrap"><h1>Техническое обслуживание и подбор автозапчастей</h1><p>Компьютерная диагностика электронных систем, плановое ТО, ремонт ходовой части и подбор комплектующих по VIN-номеру для легковых и коммерческих автомобилей.</p></div></section>
+  <main class="wrap">
+    <h2 id="services">Основные направления</h2>
+    <div class="grid">
+      <div class="card"><h3>Компьютерная диагностика</h3><p>Чтение и расшифровка кодов неисправностей ЭБУ, проверка датчиков, топливной системы и электрооборудования.</p></div>
+      <div class="card"><h3>Плановое ТО</h3><p>Замена моторного масла, фильтров, тормозных колодок, ремней ГРМ и технических жидкостей по регламенту производителя.</p></div>
+      <div class="card" id="parts"><h3>Подбор запчастей по VIN</h3><p>Поиск оригинальных деталей и проверенных аналогов с проверкой совместимости по каталогам производителей.</p></div>
+    </div>
+    <div class="hours" id="schedule">
+      <div><strong>График работы</strong><br>Пн–Сб: 09:00 – 20:00 · Вс: выходной</div>
+      <div><strong>Запись на обслуживание</strong><br>Предварительная запись по каталогу и VIN-запросу</div>
+    </div>
+  </main>
+  <footer><div class="wrap">© 2026 АвтоТехСервис. Все права защищены.</div></footer>
+</body>
+</html>
 EOF
+    cat <<'EOF' > /var/www/relay-decoy/404.html
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>404 — Страница не найдена</title><style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f8fafc;color:#334155}</style></head><body><div><h1>404</h1><p>Запрошенная страница не найдена. <a href="/">На главную</a></p></div></body></html>
+EOF
+    printf 'User-agent: *\nDisallow:\n' > /var/www/relay-decoy/robots.txt
 }
 
 write_http80_server() {
@@ -190,6 +228,8 @@ server {
 
     root /var/www/relay-decoy;
     index index.html;
+    error_page 404 /404.html;
+    location = /404.html { internal; }
     location ~ /\. { return 404; }
     location / { try_files \$uri \$uri/ =404; }
 }
