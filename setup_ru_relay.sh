@@ -117,17 +117,20 @@ configure_firewall() {
 }
 
 configure_nginx_limits() {
-    mkdir -p /etc/systemd/system/nginx.service.d
+    for svc in apache2 caddy haproxy; do
+        systemctl is-active --quiet "$svc" 2>/dev/null && systemctl disable --now "$svc" || true
+    done
+    mkdir -p /etc/systemd/system/nginx.service.d /root/nginx-relay-backup
+    cp -a /etc/nginx/sites-enabled /etc/nginx/conf.d /root/nginx-relay-backup/ 2>/dev/null || true
+    rm -f /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf
     printf '[Service]\nLimitNOFILE=65535\n' > /etc/systemd/system/nginx.service.d/limits.conf
     systemctl daemon-reload
     grep -qE 'worker_connections\s+[0-9]{1,3};' /etc/nginx/nginx.conf && sed -i -E 's/worker_connections\s+[0-9]+;/worker_connections 8192;/' /etc/nginx/nginx.conf || true
     grep -q 'include /etc/nginx/stream-enabled.conf;' /etc/nginx/nginx.conf || printf '\ninclude /etc/nginx/stream-enabled.conf;\n' >> /etc/nginx/nginx.conf
-    rm -f /etc/nginx/sites-enabled/default
 }
 
 write_decoy_site() {
     mkdir -p /var/www/relay-decoy /var/www/certbot
-    [[ -f /var/www/relay-decoy/index.html ]] && return 0
     cat <<'EOF' > /var/www/relay-decoy/index.html
 <!doctype html>
 <html lang="ru">
