@@ -634,7 +634,7 @@ EOF
             done
             map_entries+="        default 127.0.0.1:8443;"
         fi
-        map_block=$'    map $ssl_preread_server_name $backend_upstream {\n'"${map_entries}"$'\n    }\n'
+        map_block=$'    map $ssl_preread_server_name $backend_upstream {\n        hostnames;\n'"${map_entries}"$'\n    }\n'
         preread=$'        ssl_preread on;\n'
         target='$backend_upstream'
     fi
