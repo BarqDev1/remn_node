@@ -20,6 +20,7 @@ is_valid_ipv4() {
 }
 is_valid_port()   { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
 is_valid_domain() { [[ "$1" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$ ]]; }
+is_valid_sni_pattern() { is_valid_domain "${1#.}"; }
 is_valid_email()  { [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; }
 
 detect_ssh_port() {
@@ -101,6 +102,39 @@ prompt_inputs() {
         else
             LE_EMAIL=""
         fi
+
+        SNI_MODE="${SNI_MODE:-}"
+        [[ -n "$SNI_MODE" ]] || {
+            echo "Режим фильтрации SNI на порту ${LISTEN_PORT} (защита от чужих/случайных SNI):"
+            echo "  1) Умный стелс [рекомендуется]: SNI-less (77.88.8.1) + указанные VPN-SNI -> EU; чужие/случайные SNI -> сайт RU"
+            echo "  2) Строгий whitelist (макс. стелс): ТОЛЬКО указанные VPN-SNI -> EU; голый IP и чужие SNI -> сайт RU"
+            echo "  3) Прозрачный: только ${SITE_DOMAIN} -> сайт RU, всё остальное -> EU"
+            read -rp "Режим SNI [1]: " SNI_MODE
+            SNI_MODE="${SNI_MODE:-1}"
+        }
+        [[ "$SNI_MODE" =~ ^[123]$ ]] || die "Некорректный режим SNI: '${SNI_MODE}' (выберите 1, 2 или 3)"
+
+        VPN_SNIS="${VPN_SNIS:-}"
+        if [[ "$SNI_MODE" == "1" || "$SNI_MODE" == "2" ]]; then
+            if [[ -z "$VPN_SNIS" && -t 0 ]]; then
+                local sni_hint="Enter — только SNI-less 77.88.8.1; можно .domain.tld для поддоменов"
+                [[ "$SNI_MODE" == "2" ]] && sni_hint="обязательно, напр.: kernel.org www.ubuntu.com www.debian.org"
+                read -rp "Домены SNI для VPN через пробел или запятую (${sni_hint}): " VPN_SNIS
+            fi
+            VPN_SNIS="${VPN_SNIS//,/ }"
+            if [[ "$SNI_MODE" == "2" && -z "${VPN_SNIS// /}" ]]; then
+                die "В строгом режиме (2) нужно указать хотя бы один домен SNI для VPN."
+            fi
+            local s s_lc
+            for s in $VPN_SNIS; do
+                is_valid_sni_pattern "$s" || die "Некорректный VPN SNI домен: '${s}'"
+                s_lc="${s,,}"
+                [[ "${s_lc#.}" != "${SITE_DOMAIN,,}" ]] || die "VPN SNI '${s}' не может совпадать с доменом сайта-заглушки '${SITE_DOMAIN}'."
+            done
+        fi
+    else
+        SNI_MODE="3"
+        VPN_SNIS=""
     fi
 
     local default_ssh
@@ -108,7 +142,7 @@ prompt_inputs() {
     [[ -n "${SSH_PORT:-}" ]] || { read -rp "Порт SSH этого сервера (для firewall) [${default_ssh}]: " SSH_PORT; SSH_PORT="${SSH_PORT:-$default_ssh}"; }
     is_valid_port "$SSH_PORT" || die "Некорректный SSH-порт: '${SSH_PORT}'"
 
-    info "План: :${LISTEN_PORT}/tcp -> ${EU_IP}:${EU_TCP_PORT} | UDP: $([[ "$EU_UDP_PORT" != "0" ]] && echo "${EU_UDP_PORT}" || echo off) | Сайт: ${SITE_DOMAIN:-off} (${CERT_MODE}) | SSH: ${SSH_PORT}"
+    info "План: :${LISTEN_PORT}/tcp -> ${EU_IP}:${EU_TCP_PORT} | UDP: $([[ "$EU_UDP_PORT" != "0" ]] && echo "${EU_UDP_PORT}" || echo off) | Сайт: ${SITE_DOMAIN:-off} (${CERT_MODE}, SNI-режим=${SNI_MODE}) | SSH: ${SSH_PORT}"
 }
 
 configure_sysctl() {
@@ -542,7 +576,7 @@ write_final_nginx_configs() {
             cat <<EOF
 
 server {
-    listen 127.0.0.1:8443 ssl http2;
+    listen 127.0.0.1:8443 ssl http2 default_server;
     server_name ${SITE_DOMAIN};
 
     ssl_certificate ${CERT_FULLCHAIN};
@@ -590,7 +624,17 @@ EOF
         udp_block=$'\n    server {\n        listen 0.0.0.0:'"${EU_UDP_PORT}"$' udp;\n        proxy_pass '"${EU_IP}:${EU_UDP_PORT}"$';\n        proxy_timeout 60s;\n    }'
     fi
     if [[ -n "$SITE_DOMAIN" ]]; then
-        map_block=$'    map $ssl_preread_server_name $backend_upstream {\n        '"${SITE_DOMAIN}"$' 127.0.0.1:8443;\n        default '"${EU_IP}:${EU_TCP_PORT}"$';\n    }\n'
+        local map_entries="" s
+        if [[ "${SNI_MODE:-1}" == "3" ]]; then
+            map_entries="        ${SITE_DOMAIN} 127.0.0.1:8443;"$'\n'"        default ${EU_IP}:${EU_TCP_PORT};"
+        else
+            [[ "${SNI_MODE:-1}" == "1" ]] && map_entries+="        \"\" ${EU_IP}:${EU_TCP_PORT};"$'\n'
+            for s in ${VPN_SNIS:-}; do
+                map_entries+="        ${s} ${EU_IP}:${EU_TCP_PORT};"$'\n'
+            done
+            map_entries+="        default 127.0.0.1:8443;"
+        fi
+        map_block=$'    map $ssl_preread_server_name $backend_upstream {\n'"${map_entries}"$'\n    }\n'
         preread=$'        ssl_preread on;\n'
         target='$backend_upstream'
     fi
@@ -676,11 +720,26 @@ verify_result() {
         else
             warn "Проверка сайта: ${ok_cnt}/${#paths[@]} OK, /.env -> ${env_code}"
         fi
+        if [[ "${SNI_MODE:-1}" == "1" || "${SNI_MODE:-1}" == "2" ]]; then
+            if echo | openssl s_client -connect "127.0.0.1:${LISTEN_PORT}" -servername "random-probe.invalid" 2>/dev/null | grep -qE "CN\s*=\s*${SITE_DOMAIN}"; then
+                ok "Фильтр чужих SNI (random-probe.invalid): остаётся локально на RU (${SITE_DOMAIN}), EU не светится."
+            else
+                warn "Проверка чужого SNI не подтвердила локальный сертификат ${SITE_DOMAIN}."
+            fi
+        fi
+        if [[ "${SNI_MODE:-1}" == "2" ]]; then
+            if echo | openssl s_client -connect "127.0.0.1:${LISTEN_PORT}" -noservername 2>/dev/null | grep -qE "CN\s*=\s*${SITE_DOMAIN}"; then
+                ok "Скан голого IP (без SNI / RealiTLScanner): остаётся локально на RU (${SITE_DOMAIN}), EU полностью скрыт."
+            else
+                warn "Проверка голого IP (без SNI) не подтвердила локальный сертификат ${SITE_DOMAIN}."
+            fi
+        fi
     fi
     echo "============================================================"
     ok "RU-релей готов: TCP :${LISTEN_PORT} -> ${EU_IP}:${EU_TCP_PORT}$([[ "$EU_UDP_PORT" != "0" ]] && echo " | UDP :${EU_UDP_PORT} -> ${EU_IP}:${EU_UDP_PORT}" || echo " | UDP: выкл")"
     [[ -n "$SITE_DOMAIN" ]] && echo "  Сайт-заглушка: https://${SITE_DOMAIN}$([[ "$LISTEN_PORT" != "443" ]] && echo ":${LISTEN_PORT}")/ (6 страниц, TLS 1.2/1.3, HTTP/2, ${CERT_MODE})"
-    echo "  Remnawave Host: Address=${SITE_DOMAIN:-<IP_RU_VPS>}, Port=${LISTEN_PORT} (SNI как на EU: 77.88.8.1 / домен EU)"
+    [[ -n "$SITE_DOMAIN" ]] && echo "  SNI-режим: ${SNI_MODE} | Разрешённые VPN SNI -> EU: $([[ "${SNI_MODE:-1}" == "2" ]] && echo "${VPN_SNIS}" || ([[ "${SNI_MODE:-1}" == "1" ]] && echo "\"\" (77.88.8.1) ${VPN_SNIS}" || echo "default (все кроме ${SITE_DOMAIN})"))"
+    echo "  Remnawave Host: Address=${SITE_DOMAIN:-<IP_RU_VPS>}, Port=${LISTEN_PORT}"
     echo "============================================================"
 }
 
