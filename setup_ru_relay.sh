@@ -30,9 +30,14 @@ detect_ssh_port() {
 }
 
 prompt_inputs() {
-    echo "=== Настройка RU-релея (L4-каскад + локальный сайт-заглушка) ==="
+    LOCAL_IP=$(curl -4fsS --max-time 3 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || true)
+    echo "=== Настройка RU-релея ($(hostname) / ${LOCAL_IP:-unknown}) ==="
+    if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -qxE 'remnanode|remnawave'; then
+        die "На этом сервере работает remnanode/remnawave! Запустите скрипт на RU-релее, а не на VPN-ноде или панели."
+    fi
     [[ -n "${EU_IP:-}" ]] || read -rp "IP-адрес европейской ноды (куда пробрасывать трафик): " EU_IP
     is_valid_ipv4 "$EU_IP" || die "Некорректный IPv4-адрес: '${EU_IP}'"
+    [[ -z "$LOCAL_IP" || "$EU_IP" != "$LOCAL_IP" ]] || die "EU_IP совпадает с IP этого сервера (${LOCAL_IP})! Запустите скрипт на RU-релее."
 
     if [[ -z "${EU_TCP_PORT:-}" ]]; then
         read -rp "TCP-порт на европейской ноде [443]: " EU_TCP_PORT
@@ -52,6 +57,11 @@ prompt_inputs() {
     SITE_DOMAIN="${SITE_DOMAIN:-}"
     if [[ -n "$SITE_DOMAIN" ]]; then
         is_valid_domain "$SITE_DOMAIN" || die "Некорректный домен: '${SITE_DOMAIN}'"
+        local dom_ips
+        dom_ips=$(getent ahostsv4 "$SITE_DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)
+        if [[ -n "$LOCAL_IP" ]] && ! grep -qw "$LOCAL_IP" <<< "$dom_ips"; then
+            die "DNS ${SITE_DOMAIN} указывает на [${dom_ips:-пусто}], а IP этого сервера — ${LOCAL_IP}. Проверьте DNS (без прокси Cloudflare) или сервер."
+        fi
         if [[ "${LE_EMAIL+x}" != "x" ]]; then
             read -rp "Email для Let's Encrypt (можно оставить пустым): " LE_EMAIL
         fi
