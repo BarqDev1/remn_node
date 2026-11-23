@@ -18,6 +18,16 @@ is_valid_ipv4() {
     local IFS='.'; read -r a b c d <<< "$ip"
     (( a <= 255 && b <= 255 && c <= 255 && d <= 255 ))
 }
+is_valid_ipv6() {
+    local ip="$1"
+    [[ "$ip" == *:* && "$ip" =~ ^[0-9a-fA-F:]+$ ]] || return 1
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import ipaddress, sys; ipaddress.IPv6Address(sys.argv[1])' "$ip" 2>/dev/null
+        return $?
+    fi
+    return 0
+}
+is_valid_ip()     { is_valid_ipv4 "$1" || is_valid_ipv6 "$1"; }
 is_valid_port()   { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
 is_valid_domain() { [[ "$1" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$ ]]; }
 is_valid_sni_pattern() { is_valid_domain "${1#.}"; }
@@ -43,8 +53,17 @@ prompt_inputs() {
         info "На сервере обнаружен контейнер remnanode/remnawave — скрипт продолжит работу и аккуратно проверит порты."
     fi
 
-    [[ -n "${EU_IP:-}" ]] || read -rp "IP-адрес европейской ноды (куда пробрасывать трафик): " EU_IP
-    is_valid_ipv4 "$EU_IP" || die "Некорректный IPv4-адрес: '${EU_IP}'"
+    [[ -n "${EU_IP:-}" ]] || read -rp "IP-адрес европейской ноды (IPv4 или IPv6; IPv6 обходит IPv4-блокировки хостеров): " EU_IP
+    EU_IP="${EU_IP#[}"; EU_IP="${EU_IP%]}"
+    is_valid_ip "$EU_IP" || die "Некорректный IPv4/IPv6-адрес: '${EU_IP}'"
+    if is_valid_ipv6 "$EU_IP"; then
+        EU_IS_IPV6=1
+        EU_TARGET_HOST="[${EU_IP}]"
+        ip -6 addr show scope global 2>/dev/null | grep -q inet6 || warn "На этом RU-сервере не найден глобальный IPv6 — проверьте связность до ${EU_IP}."
+    else
+        EU_IS_IPV6=0
+        EU_TARGET_HOST="${EU_IP}"
+    fi
 
     [[ -n "${EU_TCP_PORT:-}" ]] || { read -rp "TCP-порт на европейской ноде [443]: " EU_TCP_PORT; EU_TCP_PORT="${EU_TCP_PORT:-443}"; }
     is_valid_port "$EU_TCP_PORT" || die "Некорректный TCP-порт: '${EU_TCP_PORT}'"
@@ -118,7 +137,7 @@ prompt_inputs() {
         if [[ "$SNI_MODE" == "1" || "$SNI_MODE" == "2" ]]; then
             if [[ -z "$VPN_SNIS" && -t 0 ]]; then
                 local sni_hint="Enter — только SNI-less 77.88.8.1; можно .domain.tld для поддоменов"
-                [[ "$SNI_MODE" == "2" ]] && sni_hint="обязательно, напр.: kernel.org www.ubuntu.com www.debian.org"
+                [[ "$SNI_MODE" == "2" ]] && sni_hint="обязательно, напр.: www.kernel.org www.debian.org"
                 read -rp "Домены SNI для VPN через пробел или запятую (${sni_hint}): " VPN_SNIS
             fi
             VPN_SNIS="${VPN_SNIS//,/ }"
@@ -142,15 +161,24 @@ prompt_inputs() {
     [[ -n "${SSH_PORT:-}" ]] || { read -rp "Порт SSH этого сервера (для firewall) [${default_ssh}]: " SSH_PORT; SSH_PORT="${SSH_PORT:-$default_ssh}"; }
     is_valid_port "$SSH_PORT" || die "Некорректный SSH-порт: '${SSH_PORT}'"
 
-    info "План: :${LISTEN_PORT}/tcp -> ${EU_IP}:${EU_TCP_PORT} | UDP: $([[ "$EU_UDP_PORT" != "0" ]] && echo "${EU_UDP_PORT}" || echo off) | Сайт: ${SITE_DOMAIN:-off} (${CERT_MODE}, SNI-режим=${SNI_MODE}) | SSH: ${SSH_PORT}"
+    info "План: :${LISTEN_PORT}/tcp -> ${EU_TARGET_HOST}:${EU_TCP_PORT} | UDP: $([[ "$EU_UDP_PORT" != "0" ]] && echo "${EU_UDP_PORT}" || echo off) | Сайт: ${SITE_DOMAIN:-off} (${CERT_MODE}, SNI-режим=${SNI_MODE}) | SSH: ${SSH_PORT}"
 }
 
 configure_sysctl() {
-    info "Применяю сетевой тюнинг ядра (BBR, mptcp=0, ecn=0), виртуализация: $(systemd-detect-virt 2>/dev/null || echo unknown)..."
+    info "Применяю сетевой тюнинг ядра (BBR, cake/fq, 16M буферы, mtu_probing=1, mptcp=0), виртуализация: $(systemd-detect-virt 2>/dev/null || echo unknown)..."
     rm -f /etc/sysctl.d/99-relay.conf
+    modprobe tcp_bbr >/dev/null 2>&1 || true
+    modprobe sch_cake >/dev/null 2>&1 || true
     cat <<'EOF' > /etc/sysctl.d/99-network.conf
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.core.rmem_default = 1048576
+net.core.wmem_default = 1048576
+net.ipv4.tcp_rmem = 4096 262144 16777216
+net.ipv4.tcp_wmem = 4096 262144 16777216
+net.ipv4.tcp_mtu_probing = 1
 net.mptcp.enabled = 0
 net.ipv4.tcp_ecn = 0
 net.ipv4.tcp_timestamps = 1
@@ -162,8 +190,14 @@ net.ipv4.ip_local_port_range = 10240 65535
 net.netfilter.nf_conntrack_max = 262144
 EOF
     sysctl --system >/dev/null 2>&1 || true
-    ok "Sysctl: $(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo '?'), mptcp=$(sysctl -n net.mptcp.enabled 2>/dev/null || echo 'n/a')"
-    ping -c 2 -W 2 "$EU_IP" >/dev/null 2>&1 && ok "ICMP до ${EU_IP}: OK" || warn "ICMP до ${EU_IP} не ответил (продолжаю)."
+    local def_if
+    def_if=$(ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' || true)
+    if [[ -n "$def_if" && "$def_if" != "lo" ]] && command -v tc >/dev/null 2>&1; then
+        tc qdisc replace dev "$def_if" root cake >/dev/null 2>&1 || tc qdisc replace dev "$def_if" root fq >/dev/null 2>&1 || true
+    fi
+    ok "Sysctl: $(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo '?'), qdisc=$(tc qdisc show dev "${def_if:-eth0}" 2>/dev/null | awk 'NR==1{print $2}' || echo '?'), rmem=$(sysctl -n net.core.rmem_max 2>/dev/null || echo '?'), mptcp=$(sysctl -n net.mptcp.enabled 2>/dev/null || echo 'n/a')"
+    local ping_flag="-4"; [[ "${EU_IS_IPV6:-0}" -eq 1 ]] && ping_flag="-6"
+    ping "$ping_flag" -c 2 -W 2 "$EU_IP" >/dev/null 2>&1 && ok "ICMP (${ping_flag}) до ${EU_IP}: OK" || warn "ICMP (${ping_flag}) до ${EU_IP} не ответил (продолжаю)."
 }
 
 install_packages() {
@@ -619,18 +653,18 @@ EOF
         rm -f /etc/nginx/sites-enabled/site.conf
     fi
 
-    local udp_block="" map_block="" preread="" target="${EU_IP}:${EU_TCP_PORT}"
+    local udp_block="" map_block="" preread="" target="${EU_TARGET_HOST}:${EU_TCP_PORT}"
     if [[ "$EU_UDP_PORT" != "0" ]]; then
-        udp_block=$'\n    server {\n        listen 0.0.0.0:'"${EU_UDP_PORT}"$' udp;\n        proxy_pass '"${EU_IP}:${EU_UDP_PORT}"$';\n        proxy_timeout 60s;\n    }'
+        udp_block=$'\n    server {\n        listen 0.0.0.0:'"${EU_UDP_PORT}"$' udp;\n        proxy_pass '"${EU_TARGET_HOST}:${EU_UDP_PORT}"$';\n        proxy_timeout 60s;\n        proxy_buffer_size 128k;\n    }'
     fi
     if [[ -n "$SITE_DOMAIN" ]]; then
         local map_entries="" s
         if [[ "${SNI_MODE:-1}" == "3" ]]; then
-            map_entries="        ${SITE_DOMAIN} 127.0.0.1:8443;"$'\n'"        default ${EU_IP}:${EU_TCP_PORT};"
+            map_entries="        ${SITE_DOMAIN} 127.0.0.1:8443;"$'\n'"        default ${EU_TARGET_HOST}:${EU_TCP_PORT};"
         else
-            [[ "${SNI_MODE:-1}" == "1" ]] && map_entries+="        \"\" ${EU_IP}:${EU_TCP_PORT};"$'\n'
+            [[ "${SNI_MODE:-1}" == "1" ]] && map_entries+="        \"\" ${EU_TARGET_HOST}:${EU_TCP_PORT};"$'\n'
             for s in ${VPN_SNIS:-}; do
-                map_entries+="        ${s} ${EU_IP}:${EU_TCP_PORT};"$'\n'
+                map_entries+="        ${s} ${EU_TARGET_HOST}:${EU_TCP_PORT};"$'\n'
             done
             map_entries+="        default 127.0.0.1:8443;"
         fi
@@ -647,6 +681,7 @@ ${map_block}    server {
 ${preread}        proxy_pass ${target};
         proxy_connect_timeout 5s;
         proxy_timeout 300s;
+        proxy_buffer_size 128k;
         proxy_socket_keepalive on;
         tcp_nodelay on;
     }${udp_block}
@@ -736,7 +771,7 @@ verify_result() {
         fi
     fi
     echo "============================================================"
-    ok "RU-релей готов: TCP :${LISTEN_PORT} -> ${EU_IP}:${EU_TCP_PORT}$([[ "$EU_UDP_PORT" != "0" ]] && echo " | UDP :${EU_UDP_PORT} -> ${EU_IP}:${EU_UDP_PORT}" || echo " | UDP: выкл")"
+    ok "RU-релей готов: TCP :${LISTEN_PORT} -> ${EU_TARGET_HOST}:${EU_TCP_PORT}$([[ "$EU_UDP_PORT" != "0" ]] && echo " | UDP :${EU_UDP_PORT} -> ${EU_TARGET_HOST}:${EU_UDP_PORT}" || echo " | UDP: выкл")"
     [[ -n "$SITE_DOMAIN" ]] && echo "  Сайт-заглушка: https://${SITE_DOMAIN}$([[ "$LISTEN_PORT" != "443" ]] && echo ":${LISTEN_PORT}")/ (6 страниц, TLS 1.2/1.3, HTTP/2, ${CERT_MODE})"
     [[ -n "$SITE_DOMAIN" ]] && echo "  SNI-режим: ${SNI_MODE} | Разрешённые VPN SNI -> EU: $([[ "${SNI_MODE:-1}" == "2" ]] && echo "${VPN_SNIS}" || ([[ "${SNI_MODE:-1}" == "1" ]] && echo "\"\" (77.88.8.1) ${VPN_SNIS}" || echo "default (все кроме ${SITE_DOMAIN})"))"
     echo "  Remnawave Host: Address=${SITE_DOMAIN:-<IP_RU_VPS>}, Port=${LISTEN_PORT}"
