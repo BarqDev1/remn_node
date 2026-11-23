@@ -2,8 +2,8 @@
 # Interactive RU Relay (L4 Cascade + stealth multi-page HTTPS site) setup.
 # Usage: sudo bash setup_ru_relay.sh
 # Non-interactive examples:
-#   sudo EU_IP=203.0.113.10 SITE_DOMAIN=site.example.com SITE_THEME=1 bash setup_ru_relay.sh
-#   sudo EU_IP="2001:db8::1 2001:db8::2 2001:db8::3" SITE_DOMAIN=site.example.com SNI_MODE=2 VPN_SNIS="www.kernel.org www.debian.org" bash setup_ru_relay.sh
+#   sudo EU_IP=203.0.113.10 SITE_DOMAIN=site.example.com SITE_THEME=1 SNI_MODE=2 VPN_SNIS="sni1.example.ru sni2.example.ru" bash setup_ru_relay.sh
+#   sudo EU_IP="2001:db8::1 2001:db8::2 2001:db8::3" SITE_DOMAIN=site.example.com SNI_MODE=2 VPN_SNIS="sni1.example.ru sni2.example.ru" bash setup_ru_relay.sh
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -103,7 +103,7 @@ prompt_inputs() {
         fi
     done
 
-    [[ -n "${EU_UDP_PORT:-}" ]] || { read -rp "UDP-порт для проброса (0 — выкл [макс. стелс], 2443 — Hysteria2) [0]: " EU_UDP_PORT; EU_UDP_PORT="${EU_UDP_PORT:-0}"; }
+    [[ -n "${EU_UDP_PORT:-}" ]] || { read -rp "UDP-порт для проброса (0 — выкл [макс. стелс], 443 — Hysteria2) [0]: " EU_UDP_PORT; EU_UDP_PORT="${EU_UDP_PORT:-0}"; }
     [[ "$EU_UDP_PORT" == "0" ]] || is_valid_port "$EU_UDP_PORT" || die "Некорректный UDP-порт: '${EU_UDP_PORT}'"
 
     [[ "${SITE_DOMAIN+x}" == "x" ]] || read -rp "Домен сайта-заглушки на этом сервере (Enter — без сайта, чистый L4): " SITE_DOMAIN
@@ -153,11 +153,11 @@ prompt_inputs() {
         SNI_MODE="${SNI_MODE:-}"
         [[ -n "$SNI_MODE" ]] || {
             echo "Режим фильтрации SNI на порту ${LISTEN_PORT} (защита от чужих/случайных SNI):"
-            echo "  1) Умный стелс [рекомендуется]: SNI-less (77.88.8.1) + указанные VPN-SNI -> EU; чужие/случайные SNI -> сайт RU"
-            echo "  2) Строгий whitelist (макс. стелс): ТОЛЬКО указанные VPN-SNI -> EU; голый IP и чужие SNI -> сайт RU"
+            echo "  1) Умный стелс (legacy): SNI-less (77.88.8.1) + указанные VPN-SNI -> EU; чужие/случайные SNI -> сайт RU"
+            echo "  2) Строгий whitelist [рекомендуется, макс. стелс]: ТОЛЬКО указанные VPN-SNI -> EU; голый IP и чужие SNI -> сайт RU"
             echo "  3) Прозрачный: только ${SITE_DOMAIN} -> сайт RU, всё остальное -> EU"
-            read -rp "Режим SNI [1]: " SNI_MODE
-            SNI_MODE="${SNI_MODE:-1}"
+            read -rp "Режим SNI [2]: " SNI_MODE
+            SNI_MODE="${SNI_MODE:-2}"
         }
         [[ "$SNI_MODE" =~ ^[123]$ ]] || die "Некорректный режим SNI: '${SNI_MODE}' (выберите 1, 2 или 3)"
 
@@ -165,7 +165,7 @@ prompt_inputs() {
         if [[ "$SNI_MODE" == "1" || "$SNI_MODE" == "2" ]]; then
             if [[ -z "$VPN_SNIS" && -t 0 ]]; then
                 local sni_hint="Enter — только SNI-less 77.88.8.1; можно .domain.tld для поддоменов"
-                [[ "$SNI_MODE" == "2" ]] && sni_hint="обязательно, напр.: www.kernel.org www.debian.org"
+                [[ "$SNI_MODE" == "2" ]] && sni_hint="обязательно, не-CDN TLSv1.3 домены с EU-ноды, напр.: sni1.example.ru sni2.example.ru"
                 read -rp "Домены SNI для VPN через пробел или запятую (${sni_hint}): " VPN_SNIS
             fi
             VPN_SNIS="${VPN_SNIS//,/ }"
@@ -199,8 +199,12 @@ configure_sysctl() {
     rm -f /etc/sysctl.d/99-relay.conf
     modprobe tcp_bbr >/dev/null 2>&1 || true
     modprobe sch_cake >/dev/null 2>&1 || true
-    cat <<'EOF' > /etc/sysctl.d/99-network.conf
-net.core.default_qdisc = fq
+    local default_qdisc="fq"
+    if sysctl -w net.core.default_qdisc=cake >/dev/null 2>&1; then
+        default_qdisc="cake"
+    fi
+    cat <<EOF > /etc/sysctl.d/99-network.conf
+net.core.default_qdisc = ${default_qdisc}
 net.ipv4.tcp_congestion_control = bbr
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
@@ -223,7 +227,7 @@ EOF
     local def_if
     def_if=$(ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' || true)
     if [[ -n "$def_if" && "$def_if" != "lo" ]] && command -v tc >/dev/null 2>&1; then
-        tc qdisc replace dev "$def_if" root cake >/dev/null 2>&1 || tc qdisc replace dev "$def_if" root fq >/dev/null 2>&1 || true
+        tc qdisc replace dev "$def_if" root "$default_qdisc" >/dev/null 2>&1 || tc qdisc replace dev "$def_if" root fq >/dev/null 2>&1 || true
     fi
     ok "Sysctl: $(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo '?'), qdisc=$(tc qdisc show dev "${def_if:-eth0}" 2>/dev/null | awk 'NR==1{print $2}' || echo '?'), rmem=$(sysctl -n net.core.rmem_max 2>/dev/null || echo '?'), mptcp=$(sysctl -n net.mptcp.enabled 2>/dev/null || echo 'n/a')"
     local ip_item ping_flag
@@ -277,12 +281,12 @@ configure_nginx_base() {
     cp -a /etc/nginx/sites-enabled /etc/nginx/conf.d /root/nginx-backup/ 2>/dev/null || true
     rm -f /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf /etc/nginx/stream-enabled.conf
 
-    printf '[Service]\nLimitNOFILE=65535\n' > /etc/systemd/system/nginx.service.d/limits.conf
+    printf '[Service]\nLimitNOFILE=65536\n' > /etc/systemd/system/nginx.service.d/limits.conf
     systemctl daemon-reload
 
     sed -i '/stream-enabled\.conf/d' /etc/nginx/nginx.conf
     grep -qE 'worker_connections\s+[0-9]{1,3};' /etc/nginx/nginx.conf && sed -i -E 's/worker_connections\s+[0-9]+;/worker_connections 8192;/' /etc/nginx/nginx.conf || true
-    grep -q 'worker_rlimit_nofile' /etc/nginx/nginx.conf || sed -i '1i worker_rlimit_nofile 65535;' /etc/nginx/nginx.conf
+    grep -q 'worker_rlimit_nofile' /etc/nginx/nginx.conf || sed -i '1i worker_rlimit_nofile 65536;' /etc/nginx/nginx.conf
     grep -q 'include /etc/nginx/stream.conf;' /etc/nginx/nginx.conf || printf '\ninclude /etc/nginx/stream.conf;\n' >> /etc/nginx/nginx.conf
 }
 
@@ -656,10 +660,10 @@ render_stream_conf() {
     fi
     if [[ -n "$SITE_DOMAIN" ]]; then
         local map_entries="" s
-        if [[ "${SNI_MODE:-1}" == "3" ]]; then
+        if [[ "${SNI_MODE:-2}" == "3" ]]; then
             map_entries="        ${SITE_DOMAIN} 127.0.0.1:8443;"$'\n'"        default ${tcp_target};"
         else
-            [[ "${SNI_MODE:-1}" == "1" ]] && map_entries+="        \"\" ${tcp_target};"$'\n'
+            [[ "${SNI_MODE:-2}" == "1" ]] && map_entries+="        \"\" ${tcp_target};"$'\n'
             for s in ${VPN_SNIS:-}; do
                 map_entries+="        ${s} ${tcp_target};"$'\n'
             done
@@ -805,14 +809,14 @@ verify_result() {
         else
             warn "Проверка сайта: ${ok_cnt}/${#paths[@]} OK, /.env -> ${env_code}"
         fi
-        if [[ "${SNI_MODE:-1}" == "1" || "${SNI_MODE:-1}" == "2" ]]; then
+        if [[ "${SNI_MODE:-2}" == "1" || "${SNI_MODE:-2}" == "2" ]]; then
             if echo | openssl s_client -connect "127.0.0.1:${LISTEN_PORT}" -servername "random-probe.invalid" 2>/dev/null | grep -qE "CN\s*=\s*${SITE_DOMAIN}"; then
                 ok "Фильтр чужих SNI (random-probe.invalid): остаётся локально на RU (${SITE_DOMAIN}), EU не светится."
             else
                 warn "Проверка чужого SNI не подтвердила локальный сертификат ${SITE_DOMAIN}."
             fi
         fi
-        if [[ "${SNI_MODE:-1}" == "2" ]]; then
+        if [[ "${SNI_MODE:-2}" == "2" ]]; then
             if echo | openssl s_client -connect "127.0.0.1:${LISTEN_PORT}" -noservername 2>/dev/null | grep -qE "CN\s*=\s*${SITE_DOMAIN}"; then
                 ok "Скан голого IP (без SNI / RealiTLScanner): остаётся локально на RU (${SITE_DOMAIN}), EU полностью скрыт."
             else
@@ -826,7 +830,7 @@ verify_result() {
     ok "RU-релей готов: TCP :${LISTEN_PORT} -> ${tcp_summary}$([[ "$EU_UDP_PORT" != "0" ]] && echo " | UDP :${EU_UDP_PORT} -> ${EU_TARGET_HOST}:${EU_UDP_PORT}" || echo " | UDP: выкл")"
     (( ${#EU_IPS[@]} > 1 )) && echo "  TCP пул: ${EU_IPS[*]}"
     [[ -n "$SITE_DOMAIN" ]] && echo "  Сайт-заглушка: https://${SITE_DOMAIN}$([[ "$LISTEN_PORT" != "443" ]] && echo ":${LISTEN_PORT}")/ (6 страниц, TLS 1.2/1.3, HTTP/2, ${CERT_MODE})"
-    [[ -n "$SITE_DOMAIN" ]] && echo "  SNI-режим: ${SNI_MODE} | Разрешённые VPN SNI -> EU: $([[ "${SNI_MODE:-1}" == "2" ]] && echo "${VPN_SNIS}" || ([[ "${SNI_MODE:-1}" == "1" ]] && echo "\"\" (77.88.8.1) ${VPN_SNIS}" || echo "default (все кроме ${SITE_DOMAIN})"))"
+    [[ -n "$SITE_DOMAIN" ]] && echo "  SNI-режим: ${SNI_MODE} | Разрешённые VPN SNI -> EU: $([[ "${SNI_MODE:-2}" == "2" ]] && echo "${VPN_SNIS}" || ([[ "${SNI_MODE:-2}" == "1" ]] && echo "\"\" (77.88.8.1) ${VPN_SNIS}" || echo "default (все кроме ${SITE_DOMAIN})"))"
     echo "  Remnawave Host: Address=${SITE_DOMAIN:-<IP_RU_VPS>}, Port=${LISTEN_PORT}"
     echo "============================================================"
 }
