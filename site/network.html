@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script src="/js/theme-init.js"></script>
+  <title>Диагностика задержки и узлы сети — ТестНет.рф</title>
+  <meta name="description" content="Серийная проверка пинга и джиттера, калькулятор времени скачивания файлов и карта измерительных узлов ТестНет.рф.">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="stylesheet" href="/css/tokens-base.css">
+  <link rel="stylesheet" href="/css/speedtest.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="site-logo" href="/">
+        <img src="/favicon.svg" alt="" width="28" height="28">
+        <span>ТестНет.рф</span>
+        <span class="logo-badge">MSK-IX</span>
+      </a>
+      <div class="header-actions">
+        <button id="theme-toggle" class="theme-btn" type="button" aria-label="Переключить цветовую тему">
+          <span class="theme-label-dark">Тёмная тема</span>
+          <span class="theme-label-light">Светлая тема</span>
+        </button>
+        <nav class="site-nav" aria-label="Основная навигация">
+          <button class="menu-button" type="button" popovertarget="site-menu" popovertargetaction="toggle" aria-controls="site-menu">Меню</button>
+          <ul id="site-menu" class="site-menu" popover="auto">
+            <li><a href="/">Спидтест</a></li>
+            <li><a href="/network.html" aria-current="page">Диагностика и узлы</a></li>
+            <li><a href="/methodology.html">Методика</a></li>
+            <li><a href="/faq.html">Справка</a></li>
+            <li><a href="/about.html">О проекте</a></li>
+          </ul>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1 class="page-title">Диагностика задержки, потерь и узлы сети</h1>
+    <p class="lead">Серийный тест отклика (24 импульса) выявляет кратковременные скачки задержки на Wi-Fi или маршруте, незаметные при одиночном пинге.</p>
+
+    <section class="speed-console" aria-label="Серийный тест задержки">
+      <div class="section-head">
+        <h2>Серийный тест Ping и Jitter</h2>
+        <button id="run-ping-series" class="btn" type="button">Запустить серию (24 пакета)</button>
+      </div>
+      <canvas id="ping-chart" class="chart-canvas" width="680" height="170" aria-label="Столбчатая диаграмма задержки пакетов"></canvas>
+      <div class="grid-4">
+        <div class="metric-card">
+          <div class="metric-label">Минимум</div>
+          <div id="d-min" class="metric-value">—</div>
+          <div class="metric-sub">лучший отклик</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Медиана (p50)</div>
+          <div id="d-med" class="metric-value">—</div>
+          <div class="metric-sub">типичная задержка</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">95-й перцентиль</div>
+          <div id="d-p95" class="metric-value">—</div>
+          <div class="metric-sub">пиковые выбросы</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Джиттер</div>
+          <div id="d-jit" class="metric-value">—</div>
+          <div class="metric-sub">среднее отклонение</div>
+        </div>
+      </div>
+      <p id="ping-status" class="status-note">Готово к запуску серии из 24 последовательных запросов без кеширования.</p>
+    </section>
+
+    <section class="section-gap card" aria-label="Калькулятор времени скачивания">
+      <h2>Калькулятор времени загрузки файлов</h2>
+      <p class="lead">Введите скорость вашего тарифа или используйте результат последнего замера с главной страницы.</p>
+      <div class="calc-bar">
+        <div class="field">
+          <label for="calc-speed">Скорость скачивания (Мбит/с)</label>
+          <input id="calc-speed" type="number" min="1" max="10000" step="1" value="100">
+        </div>
+        <div class="toolbar-group">
+          <button class="btn btn-secondary btn-sm" type="button" data-preset-mbps="50">50 Мбит/с</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-preset-mbps="100">100 Мбит/с</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-preset-mbps="300">300 Мбит/с</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-preset-mbps="500">500 Мбит/с</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-preset-mbps="1000">1 Гбит/с</button>
+        </div>
+      </div>
+      <div tabindex="0" role="region" aria-labelledby="calc-caption" class="table-wrapper">
+        <table class="calc-table">
+          <caption id="calc-caption">Расчётное время передачи популярных типов данных</caption>
+          <thead>
+            <tr>
+              <th>Сценарий / тип данных</th>
+              <th>Объём</th>
+              <th>Расчётное время</th>
+            </tr>
+          </thead>
+          <tbody id="calc-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section-gap" aria-label="Инфраструктура узлов">
+      <h2>Опорные точки обмена трафиком</h2>
+      <div tabindex="0" role="region" aria-labelledby="nodes-caption" class="table-wrapper">
+        <table class="nodes-table">
+          <caption id="nodes-caption">Технические характеристики измерительного контура</caption>
+          <thead>
+            <tr>
+              <th>Узел</th>
+              <th>Площадка</th>
+              <th>Порт</th>
+              <th>Протоколы</th>
+              <th>Статус</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">RU-MSK-01 (основной)</th>
+              <td>Москва · MSK-IX</td>
+              <td>10 Гбит/с</td>
+              <td>HTTP/2 · TLS 1.3 · IPv4/IPv6</td>
+              <td>Активен (текущий сервер)</td>
+            </tr>
+            <tr>
+              <th scope="row">RU-SPB-02</th>
+              <td>Санкт-Петербург · SPB-IX</td>
+              <td>10 Гбит/с</td>
+              <td>HTTP/2 · TLS 1.3 · IPv4</td>
+              <td>Резервный маршрут</td>
+            </tr>
+            <tr>
+              <th scope="row">RU-EKT-03</th>
+              <td>Екатеринбург · EKT-IX</td>
+              <td>10 Гбит/с</td>
+              <td>HTTP/2 · TLS 1.3 · IPv4</td>
+              <td>Плановый мониторинг</td>
+            </tr>
+            <tr>
+              <th scope="row">RU-NSK-04</th>
+              <td>Новосибирск · NSK-IX</td>
+              <td>10 Гбит/с</td>
+              <td>HTTP/2 · TLS 1.3 · IPv4</td>
+              <td>Плановый мониторинг</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div><strong>ТестНет.рф</strong><p>Независимая платформа диагностики пропускной способности и задержки интернет-каналов.</p></div>
+      <div><strong>Разделы</strong><p><a href="/">Спидтест</a> · <a href="/network.html">Диагностика</a> · <a href="/methodology.html">Методика</a> · <a href="/faq.html">Справка</a> · <a href="/privacy.html">Политика 152-ФЗ</a></p></div>
+      <div><strong>Связь</strong><p>Москва, точка обмена трафиком MSK-IX<br>Email: <a href="mailto:support@xn--e1aaxpdcc.xn--p1ai">support@тестнет.рф</a></p></div>
+    </div>
+    <div class="wrap footer-bottom">© <span data-year>2026</span> ТестНет.рф. Все измерения выполняются локально в браузере без сохранения истории на сервере.</div>
+  </footer>
+
+  <script src="/js/nav-ui.js" defer></script>
+  <script src="/js/speedtest-engine.js" defer></script>
+  <script src="/js/network-diag.js" defer></script>
+</body>
+</html>

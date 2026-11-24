@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script src="/js/theme-init.js"></script>
+  <title>Справка и частые вопросы — ТестНет.рф</title>
+  <meta name="description" content="Ответы на частые вопросы о проверке скорости интернета, пинге, джиттере и требованиях к каналу для игр и 4K-видео.">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="stylesheet" href="/css/tokens-base.css">
+  <link rel="stylesheet" href="/css/speedtest.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="site-logo" href="/">
+        <img src="/favicon.svg" alt="" width="28" height="28">
+        <span>ТестНет.рф</span>
+        <span class="logo-badge">MSK-IX</span>
+      </a>
+      <div class="header-actions">
+        <button id="theme-toggle" class="theme-btn" type="button" aria-label="Переключить цветовую тему">
+          <span class="theme-label-dark">Тёмная тема</span>
+          <span class="theme-label-light">Светлая тема</span>
+        </button>
+        <nav class="site-nav" aria-label="Основная навигация">
+          <button class="menu-button" type="button" popovertarget="site-menu" popovertargetaction="toggle" aria-controls="site-menu">Меню</button>
+          <ul id="site-menu" class="site-menu" popover="auto">
+            <li><a href="/">Спидтест</a></li>
+            <li><a href="/network.html">Диагностика и узлы</a></li>
+            <li><a href="/methodology.html">Методика</a></li>
+            <li><a href="/faq.html" aria-current="page">Справка</a></li>
+            <li><a href="/about.html">О проекте</a></li>
+          </ul>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1 class="page-title">Справка и частые вопросы</h1>
+    <p class="lead">Нормативы качества соединения и разбор типичных причин расхождения между тарифом и реальным замером.</p>
+
+    <section aria-label="Рекомендуемые параметры">
+      <h2>Рекомендуемые параметры для популярных задач</h2>
+      <div tabindex="0" role="region" aria-labelledby="tasks-caption" class="table-wrapper">
+        <table class="tasks-table">
+          <caption id="tasks-caption">Ориентировочные минимальные и комфортные значения канала</caption>
+          <thead>
+            <tr>
+              <th>Сценарий</th>
+              <th>Скачивание</th>
+              <th>Отдача</th>
+              <th>Пинг</th>
+              <th>Джиттер</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Видеозвонки (Zoom / Meet)</th>
+              <td>от 8 Мбит/с</td>
+              <td>от 5 Мбит/с</td>
+              <td>до 80 мс</td>
+              <td>до 15 мс</td>
+            </tr>
+            <tr>
+              <th scope="row">Онлайн-игры</th>
+              <td>от 15 Мбит/с</td>
+              <td>от 5 Мбит/с</td>
+              <td>до 40 мс</td>
+              <td>до 8 мс</td>
+            </tr>
+            <tr>
+              <th scope="row">Стриминг 4K HDR</th>
+              <td>от 35 Мбит/с</td>
+              <td>от 2 Мбит/с</td>
+              <td>до 120 мс</td>
+              <td>до 25 мс</td>
+            </tr>
+            <tr>
+              <th scope="row">Прямая трансляция 1080p60</th>
+              <td>от 20 Мбит/с</td>
+              <td>от 15 Мбит/с</td>
+              <td>до 50 мс</td>
+              <td>до 10 мс</td>
+            </tr>
+            <tr>
+              <th scope="row">Удалённый рабочий стол (RDP)</th>
+              <td>от 25 Мбит/с</td>
+              <td>от 15 Мбит/с</td>
+              <td>до 45 мс</td>
+              <td>до 10 мс</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section-gap" aria-label="Вопросы и ответы">
+      <h2>Частые вопросы</h2>
+      <details open>
+        <summary>Почему замер по Wi-Fi показывает меньше, чем обещает тариф 500 Мбит/с?</summary>
+        <p>Большинство ноутбуков и смартфонов через одну-две стены в диапазоне 5 ГГц реально передают 220–380 Мбит/с, а в диапазоне 2.4 ГГц — не более 50–80 Мбит/с. Проверьте подключение гигабитным кабелем напрямую в роутер, чтобы отделить лимит радиоканала от скорости провайдера.</p>
+      </details>
+      <details>
+        <summary>В чём разница между пингом и джиттером?</summary>
+        <p>Пинг (RTT) — это среднее время пути пакета до сервера и обратно. Джиттер — это колебания этой задержки от пакета к пакету. Даже при хорошем среднем пинге 20 мс высокий джиттер (более 20–30 мс) вызывает рывки в играх и выпадения слов при голосовых звонках.</p>
+      </details>
+      <details>
+        <summary>Почему скорость отдачи (Upload) ниже скорости скачивания?</summary>
+        <p>Многие домашние и мобильные тарифы асимметричны (например, 300 Мбит/с на приём и 100 Мбит/с на отдачу), а сотовые сети выделяют больше частотных слотов под скачивание. Для точной проверки асимметрии посмотрите условия вашего тарифного плана.</p>
+      </details>
+      <details>
+        <summary>Влияет ли режим энергосбережения или VPN на результат?</summary>
+        <p>Да. Режим экономии батареи на ноутбуке снижает частоту процессора и Wi-Fi-адаптера, а активный VPN добавляет дополнительное звено маршрутизации и шифрования. Для диагностики линии провайдера отключите прокси и VPN перед началом замера.</p>
+      </details>
+      <details>
+        <summary>Сохраняет ли ТестНет.рф мои замеры или IP-адрес на сервере?</summary>
+        <p>Нет. Журналирование HTTP-доступа отключено на уровне сервера, а таблица истории последних 20 замеров хранится только в локальном хранилище (<code>localStorage</code>) вашего браузера.</p>
+      </details>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div><strong>ТестНет.рф</strong><p>Независимая платформа диагностики пропускной способности и задержки интернет-каналов.</p></div>
+      <div><strong>Разделы</strong><p><a href="/">Спидтест</a> · <a href="/network.html">Диагностика</a> · <a href="/methodology.html">Методика</a> · <a href="/faq.html">Справка</a> · <a href="/privacy.html">Политика 152-ФЗ</a></p></div>
+      <div><strong>Связь</strong><p>Москва, точка обмена трафиком MSK-IX<br>Email: <a href="mailto:support@xn--e1aaxpdcc.xn--p1ai">support@тестнет.рф</a></p></div>
+    </div>
+    <div class="wrap footer-bottom">© <span data-year>2026</span> ТестНет.рф. Все измерения выполняются локально в браузере без сохранения истории на сервере.</div>
+  </footer>
+
+  <script src="/js/nav-ui.js" defer></script>
+</body>
+</html>

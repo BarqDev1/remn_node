@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script src="/js/theme-init.js"></script>
+  <title>ТестНет.рф — Проверка скорости интернета онлайн</title>
+  <meta name="description" content="Независимый тест скорости интернета ТестНет.рф: измерение скачивания, отдачи, пинга и джиттера в реальном времени.">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="stylesheet" href="/css/tokens-base.css">
+  <link rel="stylesheet" href="/css/speedtest.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="site-logo" href="/">
+        <img src="/favicon.svg" alt="" width="28" height="28">
+        <span>ТестНет.рф</span>
+        <span class="logo-badge">MSK-IX</span>
+      </a>
+      <div class="header-actions">
+        <button id="theme-toggle" class="theme-btn" type="button" aria-label="Переключить цветовую тему">
+          <span class="theme-label-dark">Тёмная тема</span>
+          <span class="theme-label-light">Светлая тема</span>
+        </button>
+        <nav class="site-nav" aria-label="Основная навигация">
+          <button class="menu-button" type="button" popovertarget="site-menu" popovertargetaction="toggle" aria-controls="site-menu">Меню</button>
+          <ul id="site-menu" class="site-menu" popover="auto">
+            <li><a href="/" aria-current="page">Спидтест</a></li>
+            <li><a href="/network.html">Диагностика и узлы</a></li>
+            <li><a href="/methodology.html">Методика</a></li>
+            <li><a href="/faq.html">Справка</a></li>
+            <li><a href="/about.html">О проекте</a></li>
+          </ul>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1 class="page-title">Проверка скорости интернет-соединения</h1>
+    <p class="lead">Многопоточный замер пропускной способности канала до российского узла ТестНет.рф без рекламы, трекеров и установки программ.</p>
+
+    <section class="speed-console" aria-label="Измерительный пульт">
+      <div class="console-toolbar">
+        <div class="toolbar-group">
+          <div class="pill-switch" role="group" aria-label="Режим нагрузки">
+            <button class="pill-btn" type="button" data-profile="express" aria-pressed="false">Экспресс · 2 потока</button>
+            <button class="pill-btn" type="button" data-profile="standard" aria-pressed="true">Стандартный · 4 потока</button>
+            <button class="pill-btn" type="button" data-profile="max" aria-pressed="false">Максимум · 6 потоков</button>
+          </div>
+          <div class="pill-switch" role="group" aria-label="Единицы измерения">
+            <button class="pill-btn" type="button" data-unit="mbps" aria-pressed="true">Мбит/с</button>
+            <button class="pill-btn" type="button" data-unit="mbs" aria-pressed="false">МБ/с</button>
+          </div>
+        </div>
+        <div class="node-pill">
+          <span class="node-dot" aria-hidden="true"></span>
+          <span>Узел: Москва · MSK-IX (тестнет.рф)</span>
+        </div>
+      </div>
+
+      <div class="console-stage">
+        <div class="gauge-panel">
+          <div class="progress-ring-wrapper">
+            <progress id="speed-progress" class="progress-ring" value="0" max="100" data-phase="idle" aria-label="Прогресс измерения скорости" aria-valuetext="Готов к замеру"></progress>
+            <div class="progress-ring-content" aria-hidden="true">
+              <span id="gauge-phase" class="gauge-phase">Готов к замеру</span>
+              <span id="gauge-speed" class="gauge-speed">0.0</span>
+              <span id="gauge-unit" class="gauge-unit">Мбит/с</span>
+            </div>
+          </div>
+          <button id="start-test" class="btn start-btn" type="button">Начать тест</button>
+        </div>
+
+        <div class="chart-panel">
+          <div class="chart-header">
+            <strong>Профиль скорости в реальном времени</strong>
+            <div class="chart-legend">
+              <span class="legend-item"><span class="legend-dot dot-dl" aria-hidden="true"></span>Скачивание</span>
+              <span class="legend-item"><span class="legend-dot dot-ul" aria-hidden="true"></span>Отдача</span>
+            </div>
+          </div>
+          <canvas id="throughput-chart" class="chart-canvas" width="680" height="170" aria-label="График скорости скачивания и отдачи"></canvas>
+          <div class="grid-4">
+            <div class="metric-card">
+              <div class="metric-label">Пинг (RTT)</div>
+              <div id="m-ping" class="metric-value">—</div>
+              <div id="m-ping-sub" class="metric-sub">медиана отклика</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Джиттер</div>
+              <div id="m-jitter" class="metric-value">—</div>
+              <div id="m-jitter-sub" class="metric-sub">стабильность линии</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Скачивание</div>
+              <div id="m-dl" class="metric-value">—</div>
+              <div id="m-dl-sub" class="metric-sub">Мбит/с</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Отдача</div>
+              <div id="m-ul" class="metric-value">—</div>
+              <div id="m-ul-sub" class="metric-sub">Мбит/с</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="session-strip">
+        <div class="session-facts">
+          <span id="session-status">Нажмите «Начать тест» для запуска проверки.</span>
+          <span id="s-proto">HTTPS / TLS 1.3</span>
+          <span id="s-loss">Потери: —</span>
+          <span id="s-id">ID: —</span>
+        </div>
+        <button id="copy-report" class="btn btn-secondary btn-sm" type="button" disabled>Скопировать отчёт</button>
+      </div>
+    </section>
+
+    <section class="section-gap" aria-label="Оценка качества соединения">
+      <h2>Оценка канала для повседневных задач</h2>
+      <div class="grid-4">
+        <article class="card">
+          <h3>Стриминг 4K HDR</h3>
+          <p>Стабильное воспроизведение видео высокого разрешения без буферизации (от 25 Мбит/с).</p>
+          <span id="q-4k" class="badge badge-neutral">Ожидает замера</span>
+        </article>
+        <article class="card">
+          <h3>Онлайн-игры</h3>
+          <p>Низкая задержка и минимальный джиттер для соревновательных матчей (&lt; 40 мс).</p>
+          <span id="q-game" class="badge badge-neutral">Ожидает замера</span>
+        </article>
+        <article class="card">
+          <h3>Видеозвонки HD</h3>
+          <p>Синхронная передача звука и изображения без рассыпания и эха.</p>
+          <span id="q-call" class="badge badge-neutral">Ожидает замера</span>
+        </article>
+        <article class="card">
+          <h3>Облако и бэкапы</h3>
+          <p>Быстрая выгрузка крупных архивов, фотобиблиотек и рабочих проектов.</p>
+          <span id="q-cloud" class="badge badge-neutral">Ожидает замера</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="section-gap" aria-label="История замеров">
+      <div class="section-head">
+        <h2>История ваших замеров</h2>
+        <div class="toolbar-group">
+          <button id="export-csv" class="btn btn-secondary btn-sm" type="button">Экспорт CSV</button>
+          <button id="clear-history" class="btn btn-secondary btn-sm" type="button">Очистить историю</button>
+        </div>
+      </div>
+      <div tabindex="0" role="region" aria-labelledby="history-caption" class="table-wrapper">
+        <table class="history-table">
+          <caption id="history-caption">Последние 20 проверок (хранятся только локально в вашем браузере)</caption>
+          <thead>
+            <tr>
+              <th>Дата и время</th>
+              <th>Пинг</th>
+              <th>Джиттер</th>
+              <th>Скачивание</th>
+              <th>Отдача</th>
+              <th>Узел</th>
+            </tr>
+          </thead>
+          <tbody id="history-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section-gap" aria-label="Советы для точного теста">
+      <h2>Как получить максимально точный результат</h2>
+      <div class="grid-3">
+        <article class="card">
+          <h3>1. Кабель или Wi-Fi 5 ГГц</h3>
+          <p>Диапазон 2.4 ГГц физически ограничивает скорость около 40–70 Мбит/с. Для тарифов 100+ Мбит/с используйте кабель или 5/6 ГГц.</p>
+        </article>
+        <article class="card">
+          <h3>2. Пауза для фоновых загрузок</h3>
+          <p>Обновления ОС, торрент-клиенты и облачные диски на других устройствах в домашней сети напрямую забирают часть канала.</p>
+        </article>
+        <article class="card">
+          <h3>3. Замер в разное время</h3>
+          <p>Сравните утренний замер с вечерним часом пик (20:00–23:00), чтобы отличить лимит роутера от перегрузки магистрали провайдера.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <strong>ТестНет.рф</strong>
+        <p>Независимая платформа диагностики пропускной способности и задержки интернет-каналов.</p>
+      </div>
+      <div>
+        <strong>Разделы</strong>
+        <p><a href="/">Спидтест</a> · <a href="/network.html">Диагностика</a> · <a href="/methodology.html">Методика</a> · <a href="/faq.html">Справка</a> · <a href="/privacy.html">Политика 152-ФЗ</a></p>
+      </div>
+      <div>
+        <strong>Связь</strong>
+        <p>Москва, точка обмена трафиком MSK-IX<br>Email: <a href="mailto:support@xn--e1aaxpdcc.xn--p1ai">support@тестнет.рф</a></p>
+      </div>
+    </div>
+    <div class="wrap footer-bottom">© <span data-year>2026</span> ТестНет.рф. Все измерения выполняются локально в браузере без сохранения истории на сервере.</div>
+  </footer>
+
+  <script src="/js/nav-ui.js" defer></script>
+  <script src="/js/speedtest-engine.js" defer></script>
+  <script src="/js/history-store.js" defer></script>
+  <script src="/js/speedtest-ui.js" defer></script>
+</body>
+</html>

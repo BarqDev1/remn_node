@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script src="/js/theme-init.js"></script>
+  <title>Методика измерений — ТестНет.рф</title>
+  <meta name="description" content="Как ТестНет.рф измеряет пинг, джиттер, скорость скачивания и отдачи с использованием несжимаемых потоков и алгоритма BBR.">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="stylesheet" href="/css/tokens-base.css">
+  <link rel="stylesheet" href="/css/speedtest.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="site-logo" href="/">
+        <img src="/favicon.svg" alt="" width="28" height="28">
+        <span>ТестНет.рф</span>
+        <span class="logo-badge">MSK-IX</span>
+      </a>
+      <div class="header-actions">
+        <button id="theme-toggle" class="theme-btn" type="button" aria-label="Переключить цветовую тему">
+          <span class="theme-label-dark">Тёмная тема</span>
+          <span class="theme-label-light">Светлая тема</span>
+        </button>
+        <nav class="site-nav" aria-label="Основная навигация">
+          <button class="menu-button" type="button" popovertarget="site-menu" popovertargetaction="toggle" aria-controls="site-menu">Меню</button>
+          <ul id="site-menu" class="site-menu" popover="auto">
+            <li><a href="/">Спидтест</a></li>
+            <li><a href="/network.html">Диагностика и узлы</a></li>
+            <li><a href="/methodology.html" aria-current="page">Методика</a></li>
+            <li><a href="/faq.html">Справка</a></li>
+            <li><a href="/about.html">О проекте</a></li>
+          </ul>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1 class="page-title">Методика измерения скорости</h1>
+    <p class="lead">ТестНет.рф измеряет реальную полезную пропускную способность уровня приложений поверх TLS 1.3 и HTTP/2, исключая искажения от кеширования и сжатия трафика.</p>
+
+    <div class="grid-3">
+      <article class="card">
+        <h3>1. Пинг (RTT) и Джиттер</h3>
+        <p>После одного прогревочного обращения для установки TLS-сессии движок отправляет серию независимых запросов к <code>/api/ping</code> с заголовком <code>no-store</code>. В карточку попадает медиана (p50), что защищает итог от единичных выбросов сборщика мусора в браузере, а джиттер считается как среднее отклонение между соседними пакетами.</p>
+      </article>
+      <article class="card">
+        <h3>2. Скачивание (Download)</h3>
+        <p>Параллельные потоки (2, 4 или 6 в зависимости от выбранного профиля) загружают энтропийные бинарные блоки с отключённым HTTP-сжатием (<code>gzip off</code>). Первые 15% сэмплов фазы медленного старта TCP отбрасываются, а итоговая скорость вычисляется как усечённое среднее устойчивого плато.</p>
+      </article>
+      <article class="card">
+        <h3>3. Отдача (Upload)</h3>
+        <p>Клиент генерирует криптографически случайные буферы в оперативной памяти браузера и передаёт их параллельными POST-потоками на приёмный контур сервера. Прогресс фиксируется по реальному объёму подтверждённо отправленных байт за каждые 200 мс.</p>
+      </article>
+    </div>
+
+    <section class="section-gap" aria-label="Таблица соответствия скоростей">
+      <h2>Соотношение тарифных скоростей и реального потолка среды</h2>
+      <div tabindex="0" role="region" aria-labelledby="tiers-caption" class="table-wrapper">
+        <table class="tiers-table">
+          <caption id="tiers-caption">Перевод Мбит/с в МБ/с и физические ограничения интерфейсов</caption>
+          <thead>
+            <tr>
+              <th>Тариф провайдера</th>
+              <th>Максимум в МБ/с</th>
+              <th>Что может ограничить</th>
+              <th>Комфортные сценарии</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">50 Мбит/с</th>
+              <td>~6.2 МБ/с</td>
+              <td>Wi-Fi 2.4 ГГц с соседями</td>
+              <td>Full HD видео, работа, звонки</td>
+            </tr>
+            <tr>
+              <th scope="row">100 Мбит/с</th>
+              <td>~12.5 МБ/с</td>
+              <td>Порт Fast Ethernet (лимит ~94 Мбит/с)</td>
+              <td>1–2 потока 4K, игры, дом из 2–3 человек</td>
+            </tr>
+            <tr>
+              <th scope="row">300 Мбит/с</th>
+              <td>~37.5 МБ/с</td>
+              <td>Бюджетный роутер без гигабитных портов</td>
+              <td>Семья, 4K HDR, частые обновления игр</td>
+            </tr>
+            <tr>
+              <th scope="row">500 Мбит/с</th>
+              <td>~62.5 МБ/с</td>
+              <td>Wi-Fi 5 на дальнем расстоянии или через стены</td>
+              <td>Удалённая работа с тяжёлыми репозиториями, облака</td>
+            </tr>
+            <tr>
+              <th scope="row">1 000 Мбит/с</th>
+              <td>~125 МБ/с</td>
+              <td>Сетевая карта, SSD или CPU при шифровании</td>
+              <td>Максимальная нагрузка без ожидания загрузки</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section-gap card">
+      <h3>Почему полезная скорость чуть ниже канальной?</h3>
+      <p>Каждый пакет в сети несёт служебные заголовки Ethernet, IP, TCP и TLS. В реальной эксплуатации накладные расходы составляют 4–7%: например, на гигабитном порту (1000 Мбит/с) чистый потолок полезных данных в браузере обычно равен 920–945 Мбит/с, а на 100-мегабитном кабеле — 93–95 Мбит/с.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div><strong>ТестНет.рф</strong><p>Независимая платформа диагностики пропускной способности и задержки интернет-каналов.</p></div>
+      <div><strong>Разделы</strong><p><a href="/">Спидтест</a> · <a href="/network.html">Диагностика</a> · <a href="/methodology.html">Методика</a> · <a href="/faq.html">Справка</a> · <a href="/privacy.html">Политика 152-ФЗ</a></p></div>
+      <div><strong>Связь</strong><p>Москва, точка обмена трафиком MSK-IX<br>Email: <a href="mailto:support@xn--e1aaxpdcc.xn--p1ai">support@тестнет.рф</a></p></div>
+    </div>
+    <div class="wrap footer-bottom">© <span data-year>2026</span> ТестНет.рф. Все измерения выполняются локально в браузере без сохранения истории на сервере.</div>
+  </footer>
+
+  <script src="/js/nav-ui.js" defer></script>
+</body>
+</html>

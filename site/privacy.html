@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script src="/js/theme-init.js"></script>
+  <title>Политика конфиденциальности (152-ФЗ) — ТестНет.рф</title>
+  <meta name="description" content="Принципы минимизации данных и соблюдение Федерального закона № 152-ФЗ на платформе ТестНет.рф.">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="stylesheet" href="/css/tokens-base.css">
+  <link rel="stylesheet" href="/css/speedtest.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="site-logo" href="/">
+        <img src="/favicon.svg" alt="" width="28" height="28">
+        <span>ТестНет.рф</span>
+        <span class="logo-badge">MSK-IX</span>
+      </a>
+      <div class="header-actions">
+        <button id="theme-toggle" class="theme-btn" type="button" aria-label="Переключить цветовую тему">
+          <span class="theme-label-dark">Тёмная тема</span>
+          <span class="theme-label-light">Светлая тема</span>
+        </button>
+        <nav class="site-nav" aria-label="Основная навигация">
+          <button class="menu-button" type="button" popovertarget="site-menu" popovertargetaction="toggle" aria-controls="site-menu">Меню</button>
+          <ul id="site-menu" class="site-menu" popover="auto">
+            <li><a href="/">Спидтест</a></li>
+            <li><a href="/network.html">Диагностика и узлы</a></li>
+            <li><a href="/methodology.html">Методика</a></li>
+            <li><a href="/faq.html">Справка</a></li>
+            <li><a href="/about.html">О проекте</a></li>
+          </ul>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1 class="page-title">Политика обработки данных (152-ФЗ)</h1>
+    <p class="lead">Платформа ТестНет.рф спроектирована по принципу минимизации данных и не формирует серверных профилей пользователей.</p>
+
+    <div class="card card-stack">
+      <h3>1. Отсутствие серверного логирования замеров</h3>
+      <p>В соответствии с требованиями Федерального закона от 27.07.2006 № 152-ФЗ «О персональных данных» измерительные конечные точки (<code>/api/ping</code>, <code>/api/meta</code>, <code>/api/upload</code>, <code>/speed/*</code>) работают без записи журналов доступа (access logs), не сохраняют IP-адреса, идентификаторы сессий и результаты измерений на сервере.</p>
+
+      <h3>2. Локальное хранение истории в браузере</h3>
+      <p>История последних 20 тестов (время, пинг, джиттер, скорости скачивания и отдачи) и выбранная вами тема оформления (светлая или тёмная) сохраняются исключительно в вашем браузере в <code>localStorage</code>. Вы можете полностью очистить историю в любой момент кнопкой «Очистить историю» на главной странице.</p>
+
+      <h3>3. Сторонние трекеры и файлы cookie</h3>
+      <p>На сайте не используются рекламные пиксели, сторонние системы веб-аналитики и отслеживающие cookie. Поступающие в рамках TCP/TLS-соединения данные обрабатываются оперативно исключительно для расчёта скорости передачи данных.</p>
+
+      <h3>4. Обратная связь</h3>
+      <p>По вопросам, связанным с обработкой технических обращений, вы можете написать на <a href="mailto:support@xn--e1aaxpdcc.xn--p1ai">support@тестнет.рф</a>.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div><strong>ТестНет.рф</strong><p>Независимая платформа диагностики пропускной способности и задержки интернет-каналов.</p></div>
+      <div><strong>Разделы</strong><p><a href="/">Спидтест</a> · <a href="/network.html">Диагностика</a> · <a href="/methodology.html">Методика</a> · <a href="/faq.html">Справка</a> · <a href="/privacy.html">Политика 152-ФЗ</a></p></div>
+      <div><strong>Связь</strong><p>Москва, точка обмена трафиком MSK-IX<br>Email: <a href="mailto:support@xn--e1aaxpdcc.xn--p1ai">support@тестнет.рф</a></p></div>
+    </div>
+    <div class="wrap footer-bottom">© <span data-year>2026</span> ТестНет.рф. Все измерения выполняются локально в браузере без сохранения истории на сервере.</div>
+  </footer>
+
+  <script src="/js/nav-ui.js" defer></script>
+</body>
+</html>

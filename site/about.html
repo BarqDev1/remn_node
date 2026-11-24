@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script src="/js/theme-init.js"></script>
+  <title>О проекте и контакты — ТестНет.рф</title>
+  <meta name="description" content="Информация о платформе ТестНет.рф, сотрудничество по пирингу с операторами связи и форма обратной связи.">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="stylesheet" href="/css/tokens-base.css">
+  <link rel="stylesheet" href="/css/speedtest.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="site-logo" href="/">
+        <img src="/favicon.svg" alt="" width="28" height="28">
+        <span>ТестНет.рф</span>
+        <span class="logo-badge">MSK-IX</span>
+      </a>
+      <div class="header-actions">
+        <button id="theme-toggle" class="theme-btn" type="button" aria-label="Переключить цветовую тему">
+          <span class="theme-label-dark">Тёмная тема</span>
+          <span class="theme-label-light">Светлая тема</span>
+        </button>
+        <nav class="site-nav" aria-label="Основная навигация">
+          <button class="menu-button" type="button" popovertarget="site-menu" popovertargetaction="toggle" aria-controls="site-menu">Меню</button>
+          <ul id="site-menu" class="site-menu" popover="auto">
+            <li><a href="/">Спидтест</a></li>
+            <li><a href="/network.html">Диагностика и узлы</a></li>
+            <li><a href="/methodology.html">Методика</a></li>
+            <li><a href="/faq.html">Справка</a></li>
+            <li><a href="/about.html" aria-current="page">О проекте</a></li>
+          </ul>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1 class="page-title">О платформе ТестНет.рф</h1>
+    <p class="lead">Независимый российский сервис для объективной проверки пропускной способности, стабильности задержки и качества интернет-соединения.</p>
+
+    <div class="grid-3">
+      <article class="card">
+        <h3>Прозрачность без рекламы</h3>
+        <p>Платформа не перегружена рекламными баннерами, видеоплеерами и сторонними счётчиками, которые сами потребляют трафик и искажают результаты замера на слабых каналах.</p>
+      </article>
+      <article class="card">
+        <h3>Отечественная точка отсчёта</h3>
+        <p>Измерительный узел ориентирован на российские магистрали обмена трафиком, что позволяет проверять реальную связность до сервисов внутри РФ.</p>
+      </article>
+      <article class="card">
+        <h3>Открытые стандарты веба</h3>
+        <p>Движок работает на нативном Fetch Streams и Web Crypto API без Flash, плагинов или клиентских утилит — достаточно любого современного браузера.</p>
+      </article>
+    </div>
+
+    <section class="section-gap grid-2" aria-label="Контакты и обратная связь">
+      <div class="card card-stack">
+        <h2>Контактная информация</h2>
+        <p><strong>Техническая поддержка:</strong> <a href="mailto:support@xn--e1aaxpdcc.xn--p1ai">support@тестнет.рф</a></p>
+        <p><strong>Вопросы пиринга и размещения узлов:</strong> <a href="mailto:noc@xn--e1aaxpdcc.xn--p1ai">noc@тестнет.рф</a></p>
+        <p><strong>Режим обработки заявок:</strong> Пн–Пт 09:00–19:00 (МСК)</p>
+        <p><strong>Размещение основного узла:</strong> Москва, зона пиринга MSK-IX</p>
+      </div>
+
+      <div class="card">
+        <h2>Обратная связь</h2>
+        <form id="contact-form" class="form-box">
+          <div class="field">
+            <label for="c-name">Ваше имя или организация</label>
+            <input id="c-name" name="name" required maxlength="80" placeholder="Иван Петров">
+          </div>
+          <div class="field">
+            <label for="c-email">Email для ответа</label>
+            <input id="c-email" name="email" type="email" required maxlength="120" placeholder="user@example.ru">
+          </div>
+          <div class="field">
+            <label for="c-note">Сообщение</label>
+            <textarea id="c-note" name="note" rows="3" required maxlength="600" placeholder="Опишите вопрос по замеру или пирингу"></textarea>
+          </div>
+          <button class="btn" type="submit">Отправить сообщение</button>
+          <div id="form-status" class="form-msg" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div><strong>ТестНет.рф</strong><p>Независимая платформа диагностики пропускной способности и задержки интернет-каналов.</p></div>
+      <div><strong>Разделы</strong><p><a href="/">Спидтест</a> · <a href="/network.html">Диагностика</a> · <a href="/methodology.html">Методика</a> · <a href="/faq.html">Справка</a> · <a href="/privacy.html">Политика 152-ФЗ</a></p></div>
+      <div><strong>Связь</strong><p>Москва, точка обмена трафиком MSK-IX<br>Email: <a href="mailto:support@xn--e1aaxpdcc.xn--p1ai">support@тестнет.рф</a></p></div>
+    </div>
+    <div class="wrap footer-bottom">© <span data-year>2026</span> ТестНет.рф. Все измерения выполняются локально в браузере без сохранения истории на сервере.</div>
+  </footer>
+
+  <script src="/js/nav-ui.js" defer></script>
+</body>
+</html>
