@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Interactive RU Relay (L4 Cascade + stealth multi-page HTTPS site) setup.
 # Usage: sudo bash setup_ru_relay.sh
+# Multi-profile (несколько IP/направлений на одном сервере): sudo bash setup_ru_relay.sh --profiles /root/relay-profiles.conf
 # Non-interactive examples:
 #   sudo EU_IP=203.0.113.10 SITE_DOMAIN="тестнет.рф" SNI_MODE=2 VPN_SNIS="sni1.example.ru sni2.example.ru" bash setup_ru_relay.sh
 #   sudo EU_IP="2001:db8::1 2001:db8::2 2001:db8::3" SITE_DOMAIN=site.example.com SNI_MODE=2 VPN_SNIS="sni1.example.ru sni2.example.ru" bash setup_ru_relay.sh
@@ -119,6 +120,14 @@ prompt_inputs() {
     [[ -n "${LISTEN_PORT:-}" ]] || { read -rp "Входной TCP-порт на этом сервере [443]: " LISTEN_PORT; LISTEN_PORT="${LISTEN_PORT:-443}"; }
     is_valid_port "$LISTEN_PORT" || die "Некорректный входной порт: '${LISTEN_PORT}'"
 
+    LISTEN_IP="${LISTEN_IP:-}"
+    if [[ -n "$LISTEN_IP" ]]; then
+        is_valid_ipv4 "$LISTEN_IP" || die "Некорректный IPv4 для LISTEN_IP: '${LISTEN_IP}'"
+        local own_ips
+        own_ips=$(ip -o -4 addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1 || true)
+        grep -qx "$LISTEN_IP" <<< "$own_ips" || warn "IP ${LISTEN_IP} не найден на интерфейсах этого сервера (nginx не сможет на него привязаться; за NAT укажите внутренний адрес)."
+    fi
+
     local ip_item
     for ip_item in "${EU_IPS[@]}"; do
         if [[ -n "$LOCAL_IP" && "$ip_item" == "$LOCAL_IP" && "$LISTEN_PORT" == "$EU_TCP_PORT" ]]; then
@@ -141,9 +150,10 @@ prompt_inputs() {
         is_valid_domain "$SITE_DOMAIN" || die "Некорректный домен: '${SITE_DOMAIN}'"
         local dom_ips
         dom_ips=$(getent ahostsv4 "$SITE_DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)
-        if [[ -n "$LOCAL_IP" ]] && ! grep -qw "$LOCAL_IP" <<< "$dom_ips"; then
-            warn "DNS ${SITE_DOMAIN_DISPLAY} (${SITE_DOMAIN}) указывает на [${dom_ips:-пусто}], а IP этого сервера — ${LOCAL_IP}."
-            warn "Let's Encrypt HTTP-01 требует, чтобы A-запись домена вела на ${LOCAL_IP} (без прокси Cloudflare)."
+        local dns_ip="${PUBLIC_IP:-${LISTEN_IP:-$LOCAL_IP}}"
+        if [[ -n "$dns_ip" ]] && ! grep -qw "$dns_ip" <<< "$dom_ips"; then
+            warn "DNS ${SITE_DOMAIN_DISPLAY} (${SITE_DOMAIN}) указывает на [${dom_ips:-пусто}], а IP этого входа — ${dns_ip}."
+            warn "Let's Encrypt HTTP-01 требует, чтобы A-запись домена вела на ${dns_ip} (без прокси Cloudflare)."
             if [[ -t 0 ]]; then
                 local dns_choice=""
                 read -rp "Выберите: 1) Всё равно пробовать Let's Encrypt  2) Самоподписанный TLS (для теста)  3) Выйти [2]: " dns_choice
@@ -212,14 +222,15 @@ prompt_inputs() {
 }
 
 configure_sysctl() {
-    info "Применяю сетевой тюнинг ядра (BBR, cake/fq, 16M буферы, mtu_probing=1, mptcp=0), виртуализация: $(systemd-detect-virt 2>/dev/null || echo unknown)..."
+    info "Применяю сетевой тюнинг ядра (BBR, fq, 16M буферы, mtu_probing=1, mptcp=0), виртуализация: $(systemd-detect-virt 2>/dev/null || echo unknown)..."
     rm -f /etc/sysctl.d/99-relay.conf
     modprobe tcp_bbr >/dev/null 2>&1 || true
-    modprobe sch_cake >/dev/null 2>&1 || true
+    # nf_conntrack нужно загрузить ДО sysctl, иначе net.netfilter.nf_conntrack_max молча не применится
+    modprobe nf_conntrack >/dev/null 2>&1 || true
+    mkdir -p /etc/modules-load.d
+    printf 'tcp_bbr\nnf_conntrack\n' > /etc/modules-load.d/relay-net.conf
+    # fq вместо cake: cake заметно грузит CPU (особенно на 1 vCPU), для BBR-релея достаточно fq
     local default_qdisc="fq"
-    if sysctl -w net.core.default_qdisc=cake >/dev/null 2>&1; then
-        default_qdisc="cake"
-    fi
     cat <<EOF > /etc/sysctl.d/99-network.conf
 net.core.default_qdisc = ${default_qdisc}
 net.ipv4.tcp_congestion_control = bbr
@@ -237,6 +248,8 @@ net.ipv4.tcp_sack = 1
 net.ipv4.tcp_fastopen = 0
 net.ipv4.tcp_slow_start_after_idle = 0
 net.core.somaxconn = 4096
+net.core.netdev_max_backlog = 16384
+net.ipv4.tcp_max_syn_backlog = 8192
 net.ipv4.ip_local_port_range = 10240 65535
 net.netfilter.nf_conntrack_max = 262144
 EOF
@@ -308,27 +321,29 @@ configure_nginx_base() {
 }
 
 write_site_files() {
-    mkdir -p /var/www/site /var/www/certbot
+    mkdir -p "${SITE_ROOT:-/var/www/site}" /var/www/certbot
     local script_dir deploy_helper
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     deploy_helper="${script_dir}/ops/deploy_speedtest_site.sh"
     export SITE_DOMAIN SITE_DOMAIN_DISPLAY="${SITE_DOMAIN_DISPLAY:-$SITE_DOMAIN}"
     if [[ -f "$deploy_helper" ]]; then
-        bash "$deploy_helper" /var/www/site
+        bash "$deploy_helper" "${SITE_ROOT:-/var/www/site}"
     else
         local tmp_deploy
         tmp_deploy=$(mktemp)
         curl -fsSL --max-time 15 "${SITE_REPO_RAW:-https://raw.githubusercontent.com/BarqDev1/remn_node/main}/ops/deploy_speedtest_site.sh" -o "$tmp_deploy"
-        bash "$tmp_deploy" /var/www/site
+        bash "$tmp_deploy" "${SITE_ROOT:-/var/www/site}"
         rm -f "$tmp_deploy"
     fi
 }
 
 write_http80_server() {
-    local v6=""; [[ -f /proc/net/if_inet6 ]] && v6=$'\n    listen [::]:80 default_server;'
+    local v6="" l4="80"
+    [[ -z "${LISTEN_IP:-}" && -f /proc/net/if_inet6 ]] && v6=$'\n    listen [::]:80 default_server;'
+    [[ -z "${LISTEN_IP:-}" ]] || l4="${LISTEN_IP}:80"
     cat <<EOF
 server {
-    listen 80 default_server;${v6}
+    listen ${l4} default_server;${v6}
     server_name ${SITE_DOMAIN};
     server_tokens off;
     access_log off;
@@ -354,7 +369,7 @@ obtain_certificate() {
 
     info "Настраиваю HTTP :80 и выпускаю Let's Encrypt для ${SITE_DOMAIN}..."
     : > /etc/nginx/stream.conf
-    write_http80_server > /etc/nginx/sites-enabled/site.conf
+    write_http80_server > "/etc/nginx/sites-enabled/${SITE_CONF_NAME:-site}.conf"
     nginx -t && systemctl enable --now nginx && systemctl reload nginx
 
     local email_args=(--register-unsafely-without-email)
@@ -370,15 +385,16 @@ obtain_certificate() {
     ok "Сертификат Let's Encrypt готов."
 }
 
-render_stream_conf() {
+render_stream_body() {
     local upstream_block="" udp_block="" map_block="" preread="" tcp_target="" connect_opts=""
+    local tag="${PROFILE_TAG:+_${PROFILE_TAG}}" listen_host="${LISTEN_IP:-0.0.0.0}"
     if (( ${#EU_TARGET_HOSTS[@]} > 1 )); then
         local srv_lines="" h
         for h in "${EU_TARGET_HOSTS[@]}"; do
             srv_lines+="        server ${h}:${EU_TCP_PORT} max_fails=2 fail_timeout=15s;"$'\n'
         done
-        upstream_block=$'    upstream eu_tcp_pool {\n'"${srv_lines}"$'    }\n\n'
-        tcp_target="eu_tcp_pool"
+        upstream_block=$'    upstream eu_tcp_pool'"${tag}"$' {\n'"${srv_lines}"$'    }\n\n'
+        tcp_target="eu_tcp_pool${tag}"
         connect_opts=$'        proxy_connect_timeout 3s;\n        proxy_next_upstream on;\n        proxy_next_upstream_tries 2;\n        proxy_next_upstream_timeout 6s;'
     else
         tcp_target="${EU_TARGET_HOST}:${EU_TCP_PORT}"
@@ -386,29 +402,26 @@ render_stream_conf() {
     fi
     local target="${tcp_target}"
     if [[ "$EU_UDP_PORT" != "0" ]]; then
-        udp_block=$'\n    server {\n        listen 0.0.0.0:'"${EU_UDP_PORT}"$' udp;\n        proxy_pass '"${EU_TARGET_HOST}:${EU_UDP_PORT}"$';\n        proxy_timeout 60s;\n        proxy_buffer_size 128k;\n    }'
+        udp_block=$'\n    server {\n        listen '"${listen_host}:${EU_UDP_PORT}"$' udp;\n        proxy_pass '"${EU_TARGET_HOST}:${EU_UDP_PORT}"$';\n        proxy_timeout 60s;\n        proxy_buffer_size 128k;\n    }'
     fi
     if [[ -n "$SITE_DOMAIN" ]]; then
         local map_entries="" s
         if [[ "${SNI_MODE:-2}" == "3" ]]; then
-            map_entries="        ${SITE_DOMAIN} 127.0.0.1:8443;"$'\n'"        default ${tcp_target};"
+            map_entries="        ${SITE_DOMAIN} 127.0.0.1:${SITE_BACKEND_PORT:-8443};"$'\n'"        default ${tcp_target};"
         else
             [[ "${SNI_MODE:-2}" == "1" ]] && map_entries+="        \"\" ${tcp_target};"$'\n'
             for s in ${VPN_SNIS:-}; do
                 map_entries+="        ${s} ${tcp_target};"$'\n'
             done
-            map_entries+="        default 127.0.0.1:8443;"
+            map_entries+="        default 127.0.0.1:${SITE_BACKEND_PORT:-8443};"
         fi
-        map_block=$'    map $ssl_preread_server_name $backend_upstream {\n        hostnames;\n'"${map_entries}"$'\n    }\n'
+        map_block=$'    map $ssl_preread_server_name $backend_upstream'"${tag}"$' {\n        hostnames;\n'"${map_entries}"$'\n    }\n'
         preread=$'        ssl_preread on;\n'
-        target='$backend_upstream'
+        target="\$backend_upstream${tag}"
     fi
     cat <<EOF
-stream {
-    access_log off;
-    error_log /var/log/nginx/error.log crit;
 ${upstream_block}${map_block}    server {
-        listen 0.0.0.0:${LISTEN_PORT};
+        listen ${listen_host}:${LISTEN_PORT};
 ${preread}        proxy_pass ${target};
 ${connect_opts}
         proxy_timeout 300s;
@@ -416,8 +429,13 @@ ${connect_opts}
         proxy_socket_keepalive on;
         tcp_nodelay on;
     }${udp_block}
-}
 EOF
+}
+
+render_stream_conf() {
+    printf 'stream {\n    access_log off;\n    error_log /var/log/nginx/error.log crit;\n'
+    render_stream_body
+    printf '}\n'
 }
 
 print_security_headers() {
@@ -460,7 +478,7 @@ render_site_nginx_conf() {
     cat <<EOF
 
 server {
-    listen 127.0.0.1:8443 ssl http2 default_server;
+    listen 127.0.0.1:${SITE_BACKEND_PORT:-8443} ssl http2 default_server;
     server_name ${SITE_DOMAIN};
 
     ssl_certificate ${CERT_FULLCHAIN};
@@ -484,7 +502,7 @@ server {
 
 ${sec_hdrs}
 
-    root /var/www/site;
+    root ${SITE_ROOT:-/var/www/site};
     index index.html;
     error_page 404 /404.html;
     location = /404.html { internal; }
@@ -521,6 +539,9 @@ ${sec_hdrs_loc}
     location ~* \.(env|git|sql|bak|log|ini|conf)$ { return 404; }
     location / { try_files \$uri \$uri/ =404; }
 }
+EOF
+    [[ -z "${SKIP_SINK:-}" ]] || return 0
+    cat <<EOF
 
 server {
     listen 127.0.0.1:8445;
@@ -554,7 +575,7 @@ resolve_port_conflict() {
         holder=$(ss -tlpn 2>/dev/null | grep -E "[:.]${LISTEN_PORT}\s" | head -n 1 || true)
         if ! grep -q 'nginx' <<< "$holder"; then
             warn "Порт ${LISTEN_PORT}/tcp сейчас занят: ${holder}"
-            if [[ -t 0 ]]; then
+            if [[ -t 0 && -z "${PROFILE_MODE:-}" ]]; then
                 local pchoice=""
                 echo "  1) Остановить контейнер remnanode (если занят им) и занять порт ${LISTEN_PORT}"
                 echo "  2) Оставить текущий сервис работать и перенести RU-релей на другой порт (например 8444)"
@@ -591,7 +612,7 @@ verify_result() {
     info "Открытые порты:"
     ss -tulnp | grep -E ":(80|${LISTEN_PORT}|${EU_UDP_PORT})\b" || true
     if [[ -n "$SITE_DOMAIN" ]]; then
-        local curl_flags=(-fsS --max-time 5 --resolve "${SITE_DOMAIN}:${LISTEN_PORT}:127.0.0.1")
+        local curl_flags=(-fsS --max-time 5 --resolve "${SITE_DOMAIN}:${LISTEN_PORT}:${LISTEN_IP:-127.0.0.1}")
         [[ "$CERT_MODE" == "selfsigned" ]] && curl_flags+=(-k)
         local path code ok_cnt=0 env_code ul_code=""
         local paths=(/ /network.html /methodology.html /faq.html /about.html /privacy.html /css/tokens-base.css /css/speedtest.css /js/theme-init.js /js/nav-ui.js /js/speedtest-engine.js /js/history-store.js /js/speedtest-ui.js /js/network-diag.js /api/ping /api/meta /speed/payload-1m.bin /favicon.svg /robots.txt /sitemap.xml)
@@ -599,7 +620,7 @@ verify_result() {
             code=$(curl "${curl_flags[@]}" -o /dev/null -w "%{http_code}" "https://${SITE_DOMAIN}:${LISTEN_PORT}${path}" || echo "FAIL")
             [[ "$code" == "200" ]] && ok_cnt=$((ok_cnt + 1)) || warn "GET ${path} -> ${code}"
         done
-        local env_flags=(-sS --max-time 5 --resolve "${SITE_DOMAIN}:${LISTEN_PORT}:127.0.0.1")
+        local env_flags=(-sS --max-time 5 --resolve "${SITE_DOMAIN}:${LISTEN_PORT}:${LISTEN_IP:-127.0.0.1}")
         [[ "$CERT_MODE" == "selfsigned" ]] && env_flags+=(-k)
         env_code=$(curl "${env_flags[@]}" -o /dev/null -w "%{http_code}" "https://${SITE_DOMAIN}:${LISTEN_PORT}/.env" || echo "FAIL")
         ul_code=$(curl "${env_flags[@]}" -X POST -d "probe" -o /dev/null -w "%{http_code}" "https://${SITE_DOMAIN}:${LISTEN_PORT}/api/upload" || echo "FAIL")
@@ -609,14 +630,14 @@ verify_result() {
             warn "Проверка сайта: ${ok_cnt}/${#paths[@]} OK, /.env -> ${env_code}, /api/upload -> ${ul_code}"
         fi
         if [[ "${SNI_MODE:-2}" == "1" || "${SNI_MODE:-2}" == "2" ]]; then
-            if echo | openssl s_client -connect "127.0.0.1:${LISTEN_PORT}" -servername "random-probe.invalid" 2>/dev/null | grep -qE "CN\s*=\s*${SITE_DOMAIN}"; then
+            if echo | openssl s_client -connect "${LISTEN_IP:-127.0.0.1}:${LISTEN_PORT}" -servername "random-probe.invalid" 2>/dev/null | grep -qE "CN\s*=\s*${SITE_DOMAIN}"; then
                 ok "Фильтр чужих SNI (random-probe.invalid): остаётся локально на RU (${SITE_DOMAIN}), EU не светится."
             else
                 warn "Проверка чужого SNI не подтвердила локальный сертификат ${SITE_DOMAIN}."
             fi
         fi
         if [[ "${SNI_MODE:-2}" == "2" ]]; then
-            if echo | openssl s_client -connect "127.0.0.1:${LISTEN_PORT}" -noservername 2>/dev/null | grep -qE "CN\s*=\s*${SITE_DOMAIN}"; then
+            if echo | openssl s_client -connect "${LISTEN_IP:-127.0.0.1}:${LISTEN_PORT}" -noservername 2>/dev/null | grep -qE "CN\s*=\s*${SITE_DOMAIN}"; then
                 ok "Скан голого IP (без SNI / RealiTLScanner): остаётся локально на RU (${SITE_DOMAIN}), EU полностью скрыт."
             else
                 warn "Проверка голого IP (без SNI) не подтвердила локальный сертификат ${SITE_DOMAIN}."
@@ -632,6 +653,135 @@ verify_result() {
     [[ -n "$SITE_DOMAIN" ]] && echo "  SNI-режим: ${SNI_MODE} | Разрешённые VPN SNI -> EU: $([[ "${SNI_MODE:-2}" == "2" ]] && echo "${VPN_SNIS}" || ([[ "${SNI_MODE:-2}" == "1" ]] && echo "\"\" (77.88.8.1) ${VPN_SNIS}" || echo "default (все кроме ${SITE_DOMAIN})"))"
     echo "  Remnawave Host: Address=${SITE_DOMAIN:-<IP_RU_VPS>}, Port=${LISTEN_PORT}"
     echo "============================================================"
+}
+
+# ---------------------------------------------------------------------------
+# Мульти-профильный режим: несколько входов (RU IP:порт) -> свои EU-направления.
+# Запуск: sudo bash setup_ru_relay.sh --profiles /root/relay-profiles.conf
+# Формат файла (INI, см. relay-profiles.example.conf): секция [имя] + параметры
+#   listen_ip (обяз.), eu_ip (обяз.), public_ip, listen_port, eu_tcp_port,
+#   eu_udp_port, site_domain, sni_mode, vpn_snis, cert_mode, le_email
+# ---------------------------------------------------------------------------
+PROFILE_KEYS=" listen_ip public_ip listen_port eu_ip eu_tcp_port eu_udp_port site_domain sni_mode vpn_snis cert_mode le_email "
+PROFILE_STATE_VARS=(LISTEN_IP PUBLIC_IP LISTEN_PORT EU_IP EU_IPS EU_TARGET_HOST EU_TARGET_HOSTS EU_TCP_PORT EU_UDP_PORT
+    SITE_DOMAIN SITE_DOMAIN_DISPLAY CERT_MODE LE_EMAIL SNI_MODE VPN_SNIS SITE_ROOT SITE_CONF_NAME SITE_BACKEND_PORT
+    PROFILE_TAG CERT_FULLCHAIN CERT_PRIVKEY SKIP_SINK)
+
+parse_profiles_file() {
+    local file="$1" line key val cur="" lineno=0
+    [[ -r "$file" ]] || die "Файл профилей не найден или не читается: ${file}"
+    declare -gA PROF=()
+    PROFILE_NAMES=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        lineno=$((lineno + 1))
+        line="${line%%#*}"
+        line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+        [[ -n "$line" ]] || continue
+        if [[ "$line" =~ ^\[([a-z0-9][a-z0-9_-]{0,15})\]$ ]]; then
+            cur="${BASH_REMATCH[1]}"
+            [[ -z "${PROF[${cur}.__seen]:-}" ]] || die "Профили: строка ${lineno}: секция [${cur}] повторяется."
+            PROF[${cur}.__seen]=1
+            PROFILE_NAMES+=("$cur")
+            continue
+        fi
+        [[ -n "$cur" ]] || die "Профили: строка ${lineno}: параметр вне секции [имя]."
+        [[ "$line" =~ ^([a-z_]+)[[:space:]]*=[[:space:]]*(.*)$ ]] || die "Профили: строка ${lineno}: ожидалось key=value."
+        key="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]}"
+        val="${val#\"}"; val="${val%\"}"
+        [[ "$PROFILE_KEYS" == *" ${key} "* ]] || die "Профили: строка ${lineno}: неизвестный параметр '${key}'."
+        PROF[${cur}.${key}]="$val"
+    done < "$file"
+    (( ${#PROFILE_NAMES[@]} >= 1 )) || die "В файле профилей нет ни одной секции [имя]."
+}
+
+profile_get() { printf '%s' "${PROF[${1}.${2}]:-${3:-}}"; }
+
+load_profile() {
+    local n="$1" idx="$2"
+    PROFILE_TAG="${n//-/_}"
+    LISTEN_IP="$(profile_get "$n" listen_ip)"
+    PUBLIC_IP="$(profile_get "$n" public_ip)"
+    LISTEN_PORT="$(profile_get "$n" listen_port 443)"
+    EU_IP="$(profile_get "$n" eu_ip)"
+    EU_TCP_PORT="$(profile_get "$n" eu_tcp_port 443)"
+    EU_UDP_PORT="$(profile_get "$n" eu_udp_port 0)"
+    SITE_DOMAIN="$(profile_get "$n" site_domain)"
+    SNI_MODE="$(profile_get "$n" sni_mode 2)"
+    VPN_SNIS="$(profile_get "$n" vpn_snis)"
+    CERT_MODE="$(profile_get "$n" cert_mode letsencrypt)"
+    LE_EMAIL="$(profile_get "$n" le_email)"
+    SITE_DOMAIN_DISPLAY=""; CERT_FULLCHAIN=""; CERT_PRIVKEY=""
+    SITE_ROOT="/var/www/site-${PROFILE_TAG}"
+    SITE_CONF_NAME="profile_${PROFILE_TAG}"
+    SITE_BACKEND_PORT=$((18443 + idx))
+    SKIP_SINK=1
+    [[ -n "$LISTEN_IP" ]] || die "Профиль [${n}]: listen_ip обязателен."
+    [[ -n "$EU_IP" ]] || die "Профиль [${n}]: eu_ip обязателен."
+    [[ "$CERT_MODE" == "letsencrypt" || "$CERT_MODE" == "selfsigned" ]] || die "Профиль [${n}]: cert_mode должен быть letsencrypt или selfsigned."
+    info "--- Профиль [${n}] ---"
+    prompt_inputs
+}
+
+save_profile_state() {
+    PROFILE_STATE[$1]=$(declare -p "${PROFILE_STATE_VARS[@]}" | sed 's/^declare -/declare -g -/')
+}
+
+write_sink_conf() {
+    cat > /etc/nginx/sites-enabled/00_sink.conf <<'EOF'
+server {
+    listen 127.0.0.1:8445;
+    access_log off;
+    error_log /var/log/nginx/error.log crit;
+    location = /sink { return 204; }
+}
+EOF
+}
+
+main_profiles() {
+    [[ "${EUID}" -eq 0 ]] || die "Запустите скрипт от root (sudo bash $0)."
+    parse_profiles_file "$PROFILES_FILE"
+    PROFILE_MODE=1
+    SSH_PORT="${SSH_PORT:-$(detect_ssh_port)}"
+    declare -gA PROFILE_STATE=()
+    local name idx=0 bind seen_bind=" " seen_dom=" " stream_all=""
+    info "Профилей: ${#PROFILE_NAMES[@]} (${PROFILE_NAMES[*]})"
+    for name in "${PROFILE_NAMES[@]}"; do
+        load_profile "$name" "$idx"
+        bind="${LISTEN_IP}:${LISTEN_PORT}"
+        [[ "$seen_bind" != *" ${bind} "* ]] || die "Профиль [${name}]: вход ${bind} уже занят другим профилем."
+        seen_bind+="${bind} "
+        if [[ -n "$SITE_DOMAIN" ]]; then
+            [[ "$seen_dom" != *" ${SITE_DOMAIN} "* ]] || die "Профиль [${name}]: домен ${SITE_DOMAIN} уже используется другим профилем."
+            seen_dom+="${SITE_DOMAIN} "
+        fi
+        save_profile_state "$name"
+        idx=$((idx + 1))
+    done
+
+    configure_sysctl
+    install_packages
+    configure_nginx_base
+    for name in "${PROFILE_NAMES[@]}"; do
+        eval "${PROFILE_STATE[$name]}"
+        info "=== Профиль [${name}]: ${LISTEN_IP}:${LISTEN_PORT} -> ${EU_IPS[*]}:${EU_TCP_PORT} ==="
+        configure_firewall
+        if [[ -n "$SITE_DOMAIN" ]]; then
+            write_site_files
+            obtain_certificate
+            render_site_nginx_conf > "/etc/nginx/sites-enabled/${SITE_CONF_NAME}.conf"
+        fi
+        stream_all+="    # профиль ${name}"$'\n'"$(render_stream_body)"$'\n'
+        save_profile_state "$name"
+    done
+    write_sink_conf
+    { printf 'stream {\n    access_log off;\n    error_log /var/log/nginx/error.log crit;\n'; printf '%s' "$stream_all"; printf '}\n'; } > /etc/nginx/stream.conf
+    resolve_port_conflict
+    for name in "${PROFILE_NAMES[@]}"; do
+        eval "${PROFILE_STATE[$name]}"
+        info "=== Проверка профиля [${name}] ==="
+        verify_result
+    done
+    ok "Все профили применены: ${PROFILE_NAMES[*]}"
 }
 
 main() {
@@ -650,5 +800,13 @@ main() {
     verify_result
 }
 if [[ -z "${SETUP_RU_RELAY_SOURCE_ONLY:-}" ]]; then
-    main "$@"
+    if [[ "${1:-}" == "--profiles" ]]; then
+        [[ -n "${2:-}" ]] || die "Использование: --profiles <файл>"
+        PROFILES_FILE="$2"
+    fi
+    if [[ -n "${PROFILES_FILE:-}" ]]; then
+        main_profiles
+    else
+        main "$@"
+    fi
 fi
